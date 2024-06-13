@@ -42,18 +42,19 @@ def show_sample(sample):
 class ExploreDataset(Dataset):
     def __init__(
         self,
-        src_path,
+        scene_path,
+        exploration_path,
         tokenizer,
         max_length,
         scene_token=SCENE_TOKEN,
         # frontier_token = FRONTIER_TOKEN,
         select_token=SELECT_TOKEN,
     ):
-        scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
+        # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict")
-        exploration_path = (
-            "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
-        )
+        # exploration_path = (
+        #     "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
+        # )
         self.explore_dir = os.path.join(exploration_path, "exploration_data")
         self.tokenizer = tokenizer
         self.scene_token = scene_token

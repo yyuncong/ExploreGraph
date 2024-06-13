@@ -269,8 +269,12 @@ def main():
     # )
     # additional_special_tokens = [SCENE_TOKEN]
     # tokenizer.add_tokens(additional_special_tokens, special_tokens=True)
-
-    dataset = ExploreDataset("../exploregraph_data", tokenizer, 2048)
+    dataset = ExploreDataset(
+        scene_path="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory",
+        exploration_path="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        tokenizer=tokenizer, 
+        max_length=2048,
+    )
     # train_dataset, val_dataset = dataset, dataset
     train_index, test_index = dataset.split_index(test_ratio=0.999)
     train_dataset = Subset(dataset, train_index)
