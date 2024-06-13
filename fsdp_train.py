@@ -223,6 +223,16 @@ def main():
         action="store_true",
         help="Use horovod for distributed training.",
     )
+    parser.add_argument(
+        "--scene_path", 
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory", 
+        help="scene path"
+    )
+    parser.add_argument(
+        "--exploration_path",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        help="exploration path"
+    )
     parser.add_argument("--num_epochs", default=10, type=int)
     parser.add_argument("--batch_size", default=2, type=int)
     parser.add_argument("--save_interval", default=20, type=int)
@@ -270,8 +280,8 @@ def main():
     # additional_special_tokens = [SCENE_TOKEN]
     # tokenizer.add_tokens(additional_special_tokens, special_tokens=True)
     dataset = ExploreDataset(
-        scene_path="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory",
-        exploration_path="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        scene_path=args.scene_path,
+        exploration_path=args.exploration_path,
         tokenizer=tokenizer, 
         max_length=2048,
     )

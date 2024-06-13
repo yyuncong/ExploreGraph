@@ -194,6 +194,16 @@ def main():
     )
     parser.add_argument("--num_epochs", default=10, type=int)
     parser.add_argument("--folder", default="tmp", help="save folder")
+    parser.add_argument(
+        "--scene_path", 
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory", 
+        help="scene path"
+    )
+    parser.add_argument(
+        "--exploration_path",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        help="exploration path"
+    )
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -218,8 +228,8 @@ def main():
     # tokenizer.add_tokens(additional_special_tokens, special_tokens=True)
 
     dataset = ExploreDataset(
-        scene_path="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory",
-        exploration_path="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        scene_path=args.scene_path,
+        exploration_path=args.exploration_path,
         tokenizer=tokenizer, 
         max_length=2048,
     )
