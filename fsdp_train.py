@@ -224,14 +224,14 @@ def main():
         help="Use horovod for distributed training.",
     )
     parser.add_argument(
-        "--scene_path", 
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory", 
-        help="scene path"
+        "--scene_path",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory",
+        help="scene path",
     )
     parser.add_argument(
         "--exploration_path",
         default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
-        help="exploration path"
+        help="exploration path",
     )
     parser.add_argument("--num_epochs", default=10, type=int)
     parser.add_argument("--batch_size", default=2, type=int)
@@ -239,6 +239,16 @@ def main():
     parser.add_argument("--eval_interval", default=2, type=int)
     parser.add_argument("--folder", default="tmp", help="save folder")
     parser.add_argument("--lr", default=1e-6, type=float)
+    parser.add_argument(
+        "--egocentric_views",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--action_memory",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args()
 
     # local rank: the rank within the node
@@ -279,16 +289,28 @@ def main():
     # )
     # additional_special_tokens = [SCENE_TOKEN]
     # tokenizer.add_tokens(additional_special_tokens, special_tokens=True)
-    dataset = ExploreDataset(
+    train_total_dataset = ExploreDataset(
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
-        tokenizer=tokenizer, 
+        egocentric_views=args.egocentric_views,
+        action_memory=args.action_memory,
+        tokenizer=tokenizer,
         max_length=2048,
     )
+    val_total_dataset = ExploreDataset(
+        scene_path=args.scene_path,
+        exploration_path=args.exploration_path,
+        egocentric_views=args.egocentric_views,
+        action_memory=args.action_memory,
+        tokenizer=tokenizer,
+        max_length=2048,
+        split="val",
+    )
+    train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)
     # train_dataset, val_dataset = dataset, dataset
-    train_index, test_index = dataset.split_index(test_ratio=0.999)
-    train_dataset = Subset(dataset, train_index)
-    val_dataset = Subset(dataset, test_index)
+    # train_index, test_index = dataset.split_index(test_ratio=0.999)
+    train_dataset = Subset(train_total_dataset, train_index)
+    val_dataset = Subset(val_total_dataset, test_index)
     # distributed dataset
     sampler = DistributedSampler(
         train_dataset,
@@ -303,14 +325,14 @@ def main():
         pin_memory=True,
         num_workers=1,
         sampler=sampler,
-        collate_fn=dataset.collate_wrapper,
+        collate_fn=train_total_dataset.collate_wrapper,
     )
     val_dataloader = DataLoader(
         val_dataset,
         batch_size=1,
         pin_memory=True,
         num_workers=1,
-        collate_fn=dataset.collate_wrapper,
+        collate_fn=val_total_dataset.collate_wrapper,
     )
 
     # freeze model
@@ -323,6 +345,10 @@ def main():
     del model.model.vision_tower
     model.train()
 
+    # ignored_modules = [
+    #     model.model.mm_projector,
+    #     model.model.layers[-1],
+    # ]
     ignored_modules = []
     # split model to different sharding, each sharding a device
     model = FSDP(
@@ -345,17 +371,23 @@ def main():
     loss_fn = torch.nn.CrossEntropyLoss()
     # start training
 
+    saving_folder = f"{args.folder}_{args.lr}"
+    if args.egocentric_views:
+        saving_folder += "_ego"
+    if args.action_memory:
+        saving_folder += "_mem"
+
     for epoch in range(args.num_epochs):
         if args.rank == 0:
             print("Start training epoch %d" % epoch)
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
-        try:
-            if epoch % args.save_interval == 0:
-                save_checkpoint(model, args.folder, epoch, args)
-        except:
-            pass
-        eval(val_dataloader, model, tokenizer, args)
+        # try:
+        #     if epoch % args.save_interval == 0:
+        #         save_checkpoint(model, saving_folder, epoch, args)
+        # except:
+        #     pass
+        # eval(val_dataloader, model, tokenizer, args)
 
 
 if __name__ == "__main__":

@@ -86,6 +86,8 @@ def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
     llava_model = llava_model.train()
     pbar = tqdm(dataloader)
+    total_loss = 0
+    total_sample = 0
     for sample in pbar:
         feature_dict = EasyDict(
             scene_feature=sample.scene_feature.to("cuda"),
@@ -97,58 +99,31 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels = input_ids.clone()
         answer_indices = torch.where(labels == 22550)[1]
 
-        # input parts are not considered
+        # print(input_ids.shape)
+        # input()
+
         for j, answer_idx in enumerate(answer_indices):
             labels[j, : answer_idx + 2] = -100
 
         labels[labels == tokenizer.pad_token_id] = -100
         optimizer.zero_grad()
 
-        # with torch.autocast(device_type="cuda"):
-        # scene_feature = llava_model.model.mm_projector(sample.scene_feature.to("cuda"))
-        # feature_dict.scene_feature_proj = scene_feature
-        # can it automatically replace special token embeddings with scene feature?
-        outputs = llava_model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            labels=None,
-            feature_dict=feature_dict,
-            output_hidden_states=True,
-        )
-        hidden_state = outputs["hidden_states"][-1][:, -1, :].unsqueeze(1)
-        # project feature for attention computation
-        scene_feature = llava_model.model.mm_projector(sample.scene_feature.to("cuda"))
-        attention = torch.einsum("abf,acf-> abc", scene_feature, hidden_state).squeeze(
-            -1
-        )
-        prediction = sample.prediction.to("cuda")
-
-        # weights for loss computation
-        weights = torch.zeros_like(attention)
-        weights[prediction == 0] = 0.2
-        weights[prediction == 1] = 1
-        weights[prediction == -1] = 0
-
-        for i in range(prediction.shape[0]):
-            weights[i][sample["max_scene_length"][i] :] = 0
-
-        attention = attention.reshape(-1).to("cuda")
-        prediction = prediction.reshape(-1).to("cuda")
-        weights = weights.reshape(-1).to("cuda")
-
-        pos_weight = (torch.ones(attention.shape) * 5).to("cuda")
-
-        loss2 = F.binary_cross_entropy_with_logits(
-            attention, prediction, weight=weights, pos_weight=pos_weight
-        )
+        with torch.autocast(device_type="cuda"):
+            outputs = llava_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+                feature_dict=feature_dict,
+                output_hidden_states=True,
+            )
 
         loss = outputs.loss
-        # loss += loss2
-        # loss.backward()
-        loss = torch.tensor(0).to("cuda")
-        loss2.backward()
+        loss.backward()
         optimizer.step()
-        pbar.set_description(f"loss: {loss.item():.3f} loss2: {loss2.item():.3f} ")
+        total_loss += loss.item()
+        total_sample += input_ids.shape[0]
+        pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
+        # pbar.set_description(f"loss: {loss.item():.3f}")
 
 
 def eval(dataloader, model, tokenizer):
@@ -156,66 +131,45 @@ def eval(dataloader, model, tokenizer):
     total = 0
     correct = 0
     pbar = tqdm(dataloader)
+    max_token_length = 0
     with torch.no_grad():
+        count = 0
         for sample in pbar:
             input_ids = sample.input_ids
-            attention_mask = sample.attention_mask
-            labels = input_ids.clone()
-            # seems we do not need things like answer?
-            answer_indices = torch.where(labels == 22550)[1]
-            for j, answer_idx in enumerate(answer_indices):
-                labels[j, : answer_idx + 2] = -100
-            labels[labels == tokenizer.pad_token_id] = -100
-
             answer_ind = torch.where(sample.input_ids == 22550)[1][0].item()
-            answer_ids = input_ids[:, answer_ind + 2 :]
-            # input_ids = input_ids[:, :answer_ind+2]
-            # compute answer
+            answer_ids = input_ids[:, answer_ind + 2 : answer_ind + 6]
+            # print(tokenizer.decode(answer_ids[0]))
+            input_ids = input_ids[:, : answer_ind + 2]
+            max_token_length = max(max_token_length, input_ids.shape[1])
+            # print(tokenizer.decode(input_ids[0]))
             feature_dict = EasyDict(
                 scene_feature=sample.scene_feature.to("cuda"),
                 scene_insert_loc=sample.scene_insert_loc,
                 scene_length=sample.scene_length,
             )
             input_ids = input_ids.to("cuda")
-            with torch.inference_mode() and torch.autocast(device_type="cuda"):
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=None,
+            with torch.inference_mode():
+                output_ids = model.generate(
+                    input_ids,
                     feature_dict=feature_dict,
-                    output_hidden_states=True,
+                    do_sample=False,
+                    max_new_tokens=10,
                 )
-                hidden_state = outputs["hidden_states"][-1][:, -1, :].unsqueeze(1)
-                scene_feature = model.model.mm_projector(
-                    sample.scene_feature.to("cuda")
-                )
-                attention = torch.einsum(
-                    "abf,acf-> abc", scene_feature, hidden_state
-                ).squeeze(-1)
-                prediction = sample.prediction.to("cuda")
-
-            # print(attention.shape)
-            # print(prediction.shape)
-            # calculate accuracy using attention and prediction
-            output_ids = torch.argmax(attention, dim=-1)
-            prediction_ids = torch.argmax(prediction, dim=-1)
-            output_ids = output_ids.reshape(-1)
-            prediction_ids = prediction_ids.reshape(-1)
-            # print(output_ids.shape)
-            # print(prediction_ids.shape)
-            # print(output_ids)
-            # print(prediction_ids)
-            correct += torch.sum(prediction_ids == output_ids).item()
-            total += prediction.shape[0]
+            outputs = (
+                tokenizer.decode(output_ids[0, input_ids.shape[1] :])
+                .replace("</s>", "")
+                .strip()
+            )
+            gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
+            total += 1
+            if gt.lower().strip() == outputs.lower().strip():
+                correct += 1
 
             pbar.set_description(f"acc: {correct / total}")
-
-    print("accuracy:", correct / total)
-
-    # else:
-    #     print("wrong:", gt, outputs)
-    # if total % 10 == 0:
-    #     print("accuracy:", correct / total)
+            count += 1
+            if count > 100:
+                break
+    print(max_token_length)
 
 
 def main():
@@ -243,14 +197,19 @@ def main():
         help="Use horovod for distributed training.",
     )
     parser.add_argument(
-        "--scene_path", 
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory", 
-        help="scene path"
+        "--scene_path",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory",
+        help="scene path",
     )
     parser.add_argument(
         "--exploration_path",
         default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
-        help="exploration path"
+        help="exploration path",
+    )
+    parser.add_argument(
+        "--egocentric_views",
+        action="store_true",
+        default=False,
     )
     parser.add_argument("--num_epochs", default=10, type=int)
     parser.add_argument("--folder", default="tmp", help="save folder")
@@ -279,7 +238,8 @@ def main():
     dataset = ExploreDataset(
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
-        tokenizer=tokenizer, 
+        egocentric_views=args.egocentric_views,
+        tokenizer=tokenizer,
         max_length=2048,
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
@@ -318,11 +278,11 @@ def main():
     # start training
     for epoch in range(args.num_epochs):
         print("Start training epoch %d" % epoch)
-        # train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
         print("evaluating")
-        eval(dataloader, model, tokenizer)
+        eval(val_dataloader, model, tokenizer)
 
 
 if __name__ == "__main__":

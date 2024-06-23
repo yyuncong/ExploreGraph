@@ -1,13 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=test-fsdp-new
-#SBATCH --output=log/fsdp-%j.txt
-#SBATCH --error=log/fsdp-%j.err
-#SBATCH --time=06:00:00
-#SBATCH --gres=gpu:8
-#SBATCH --nodes=1
+#SBATCH --output=log/fsdp-dcs-%j.txt
+#SBATCH --error=log/fsdp-dcs-%j.err
+#SBATCH --time=01:00:00
+#SBATCH --gres=gpu:6
+#SBATCH --nodes=4
 # activate the environment
-source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
-conda activate mllm
+#source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
+# source ~/.bashrc_dcs
+# conda activate mllm
 
 
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
@@ -44,11 +45,11 @@ echo "NODE NUMBER:"$SLURM_NNODES
 
 # run the training script
 NUM_GPUS_PER_NODE=$(echo "$SLURM_JOB_GPUS" | tr ',' '\n' | wc -l)
-echo $NUM_GPUS_PER_NODE
+echo "GPU PER NODE:"$NUM_GPUS_PER_NODE
 
 if [ $SLURM_NNODES -gt 1 ]; then
     CMD="torchrun --nnodes=$SLURM_NNODES --nproc_per_node=$NUM_GPUS_PER_NODE --node_rank=$NODE_RANK
-    --rdzv-id=$RANDOM --rdzv-backend=c10d --rdzv-endpoint=$MASTER_ADDR:$MASTER_PORT"
+    --rdzv_id=$RANDOM --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT"
 else
     CMD="torchrun --nproc_per_node=$NUM_GPUS_PER_NODE --master_port=$MASTER_PORT"
 fi
@@ -57,8 +58,9 @@ echo $CMD
 
 srun $CMD \
 fsdp_train.py \
---folder retrieval_attention_6_all \
---lr=1e-6 \
---num_epochs=115 \
+--folder ckpts/all_57 \
+--lr=5e-7 \
+--egocentric_views \
+--num_epochs=10 \
 --batch_size=1 \
 --save_interval=1

@@ -96,20 +96,13 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels = input_ids.clone()
         answer_indices = torch.where(labels == 22550)[1]
 
-        print(answer_indices)
-
         for j, answer_idx in enumerate(answer_indices):
             labels[j, : answer_idx + 2] = -100
 
         labels[labels == tokenizer.pad_token_id] = -100
 
-        # decode all the tokens with token_id != -100 back to text and print them out
+        # Jiachen TODO: check the content of your new prompt by uncommenting the following line
         # print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
-        # print(tokenizer.decode(labels[0][labels[0] != -100]))
-        # print(labels[0])
-        # print(tokenizer.decode(input_ids[1][input_ids[1] != tokenizer.pad_token_id]))
-        # print(tokenizer.decode(labels[1][labels[1] != -100]))
-        # print(labels[1])
 
         optimizer.zero_grad()
 
@@ -120,6 +113,10 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             feature_dict=feature_dict,
             output_hidden_states=True,
         )
+
+        # Jiachen TODO: get the extra filter outputs with everything you added
+        # and calculate the filter_loss and combine it with the total loss for training
+        # Add the values of the two losses to the set_description line
 
         loss = outputs.loss
         loss.backward()
@@ -134,6 +131,7 @@ def eval(dataloader, model, tokenizer):
     pbar = tqdm(dataloader)
     max_token_length = 0
     with torch.no_grad():
+        count = 0
         for sample in pbar:
             input_ids = sample.input_ids
             answer_ind = torch.where(sample.input_ids == 22550)[1][0].item()
@@ -141,6 +139,7 @@ def eval(dataloader, model, tokenizer):
             # print(tokenizer.decode(answer_ids[0]))
             input_ids = input_ids[:, : answer_ind + 2]
             max_token_length = max(max_token_length, input_ids.shape[1])
+            # print(tokenizer.decode(input_ids[0]))
             feature_dict = EasyDict(
                 scene_feature=sample.scene_feature.to("cpu"),
                 scene_insert_loc=sample.scene_insert_loc,
@@ -165,7 +164,9 @@ def eval(dataloader, model, tokenizer):
                 correct += 1
 
             pbar.set_description(f"acc: {correct / total}")
-    print(max_token_length)
+            count += 1
+            if count > 10:
+                break
 
 
 def main():
@@ -195,15 +196,29 @@ def main():
     parser.add_argument("--num_epochs", default=10, type=int)
     parser.add_argument("--folder", default="tmp", help="save folder")
     parser.add_argument(
-        "--scene_path", 
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory", 
-        help="scene path"
+        "--scene_path",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory",
+        help="scene path",
     )
     parser.add_argument(
         "--exploration_path",
         default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
-        help="exploration path"
+        help="exploration path",
     )
+    parser.add_argument(
+        "--egocentric_views",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--action_memory",
+        action="store_true",
+        default=False,
+    )
+    # Jiachen TODO: Add parameters for your feature
+    # 1. Whether we are going to use the prefiltering
+    # 2. How many object categories we are going to keep (5? 10? 20?)
+
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -227,10 +242,13 @@ def main():
     # additional_special_tokens = [SCENE_TOKEN, SELECT_TOKEN]
     # tokenizer.add_tokens(additional_special_tokens, special_tokens=True)
 
+    # Jiachen TODO: pass your parameter in the dataset file
     dataset = ExploreDataset(
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
-        tokenizer=tokenizer, 
+        egocentric_views=args.egocentric_views,
+        action_memory=args.action_memory,
+        tokenizer=tokenizer,
         max_length=2048,
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
@@ -245,8 +263,9 @@ def main():
         collate_fn=dataset.collate_wrapper,
     )
     val_dataloader = DataLoader(
-        val_dataset,
+        train_dataset,
         batch_size=1,
+        shuffle=True,
         pin_memory=True,
         num_workers=1,
         collate_fn=dataset.collate_wrapper,
@@ -275,10 +294,13 @@ def main():
     # start training
     for epoch in range(args.num_epochs):
         print("Start training epoch %d" % epoch)
-        # train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+
+        # Jiachen TODO: update train_one_epoch for your feature
+        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
         print("evaluating")
+        # Jiachen TODO: update eval for your feature
         eval(val_dataloader, model, tokenizer)
 
 
