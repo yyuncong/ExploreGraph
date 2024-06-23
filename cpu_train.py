@@ -124,49 +124,40 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         pbar.set_description(f"loss: {loss.item():.3f}")
 
 
-def eval(dataloader, model, tokenizer):
+def eval(dataloader, model, tokenizer, args):
     model.eval()
-    total = 0
-    correct = 0
+    total_loss = 0
+    total_sample = 0
     pbar = tqdm(dataloader)
-    max_token_length = 0
     with torch.no_grad():
-        count = 0
         for sample in pbar:
-            input_ids = sample.input_ids
-            answer_ind = torch.where(sample.input_ids == 22550)[1][0].item()
-            answer_ids = input_ids[:, answer_ind + 2 : answer_ind + 6]
-            # print(tokenizer.decode(answer_ids[0]))
-            input_ids = input_ids[:, : answer_ind + 2]
-            max_token_length = max(max_token_length, input_ids.shape[1])
-            # print(tokenizer.decode(input_ids[0]))
             feature_dict = EasyDict(
                 scene_feature=sample.scene_feature.to("cpu"),
                 scene_insert_loc=sample.scene_insert_loc,
                 scene_length=sample.scene_length,
             )
-            input_ids = input_ids.to("cpu")
-            with torch.inference_mode():
-                output_ids = model.generate(
-                    input_ids,
-                    feature_dict=feature_dict,
-                    do_sample=False,
-                    max_new_tokens=10,
-                )
-            outputs = (
-                tokenizer.decode(output_ids[0, input_ids.shape[1] :])
-                .replace("</s>", "")
-                .strip()
-            )
-            gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            total += 1
-            if gt.lower().strip() == outputs.lower().strip():
-                correct += 1
+            input_ids = sample.input_ids.to("cpu")
+            attention_mask = sample.attention_mask.to("cpu")
+            labels = input_ids.clone()
+            answer_indices = torch.where(labels == 22550)[1]
 
-            pbar.set_description(f"acc: {correct / total}")
-            count += 1
-            if count > 10:
-                break
+            for j, answer_idx in enumerate(answer_indices):
+                labels[j, : answer_idx + 2] = -100
+
+            labels[labels == tokenizer.pad_token_id] = -100
+            with torch.autocast(device_type="cpu"):
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    feature_dict=feature_dict,
+                    output_hidden_states=True,
+                )
+
+            loss = outputs.loss
+            total_loss += loss.item()
+            total_sample += input_ids.shape[0]
+            pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
 
 
 def main():
