@@ -7,6 +7,9 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+llava/
+ckpt/
+log/
 .Python
 build/
 develop-eggs/
