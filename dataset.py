@@ -242,12 +242,17 @@ class ExploreDataset(Dataset):
             else:
                 try:
                     object_feature = torch.load(scene[str(sid)], map_location="cpu")
-                    object_features.append(object_feature)
                     class_name = obj_map[str(sid)]
-                    text += f"object {object_index} {class_name} <scene> "
-                    # Jiachen TODO 2
-                    seen_categories.add(class_name)
-                    object_index += 1
+                    # Jiachen TODO 6: when using prefiltering, 
+                    # only the intersection of seen categories and ranking should be kept
+                    if self.prefiltering and class_name not in ranking:
+                        remove_indices.append(i)
+                    else:
+                        object_features.append(object_feature)
+                        text += f"object {object_index} {class_name} <scene> "
+                        # Jiachen TODO 2
+                        seen_categories.add(class_name)
+                        object_index += 1
                 except:
                     remove_indices.append(i)
                     
@@ -368,7 +373,7 @@ class ExploreDataset(Dataset):
             # only require selection when there are more than k objects
             if len(seen_categories) == 0:
                 filter_text += "No object available \n"
-            filter_text += f"Select the top {len(ranking)} important objects that can help answer the question \n"
+            filter_text += f"Select the top {len(ranking)} important objects\n"
             filter_text += "Rank them based on their importance from high to low \n"
             filter_text += "Reprint the name of kept objects. Each object one line \n"
             filter_text += "If no object should be selected, just type 'None' \n"
@@ -417,7 +422,6 @@ class ExploreDataset(Dataset):
         # because sos token is added, the max_length should be +1?
         max_length = max(b.length for b in batch) + 1
         max_scene_length = max(b.scene_feature.shape[0] for b in batch)
-        max_filter_length = max(b.filter_length for b in batch) + 1
         # max_frontier_length = max(b.frontier_feature.shape[0] for b in batch)
 
         scene_feature = torch.zeros((len(batch), max_scene_length, 1024))
@@ -429,6 +433,7 @@ class ExploreDataset(Dataset):
             scene_insert_loc[j, : b.scene_insert_loc.shape[0]] = b.scene_insert_loc
         
         if self.prefiltering:
+            max_filter_length = max(b.filter_length for b in batch) + 1
             return EasyDict(
                 input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
                 attention_mask=torch.cat([b.attention_mask for b in batch])[

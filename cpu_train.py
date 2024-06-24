@@ -102,7 +102,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels[labels == tokenizer.pad_token_id] = -100
 
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
-        print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        # print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
 
         optimizer.zero_grad()
 
@@ -123,7 +123,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_attention_mask = sample.filter_attention_mask.to("cpu")
             filter_labels = filter_input_ids.clone()
             # choose the first answer as the separator
-            filter_answer_indices = torch.where(filter_labels == 22550)[0]
+            filter_answer_indices = torch.where(filter_labels == 22550)[1]
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
@@ -132,6 +132,11 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             print(
                 tokenizer.decode(
                     filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+                )
+            )
+            print(
+                tokenizer.decode(   
+                    filter_input_ids[0, :filter_answer_indices[0]+2]
                 )
             )
 
