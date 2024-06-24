@@ -102,7 +102,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels[labels == tokenizer.pad_token_id] = -100
 
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
-        # print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
 
         optimizer.zero_grad()
 
@@ -113,12 +113,36 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             feature_dict=feature_dict,
             output_hidden_states=True,
         )
-
+        loss = outputs.loss
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
         # Add the values of the two losses to the set_description line
+        # None feature dict as a placeholder
+        if args.prefiltering:
+            filter_input_ids = sample.filter_input_ids.to("cpu")
+            filter_attention_mask = sample.filter_attention_mask.to("cpu")
+            filter_labels = filter_input_ids.clone()
+            # choose the first answer as the separator
+            filter_answer_indices = torch.where(filter_labels == 22550)[0]
+            for j, answer_idx in enumerate(filter_answer_indices):
+                filter_labels[j, : answer_idx + 2] = -100
+            filter_labels[filter_labels == tokenizer.pad_token_id] = -100
 
-        loss = outputs.loss
+            # test output
+            print(
+                tokenizer.decode(
+                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+                )
+            )
+
+            filter_outputs = llava_model(
+                input_ids=filter_input_ids,
+                attention_mask=filter_attention_mask,
+                labels=filter_labels,
+                feature_dict=None,
+                output_hidden_states=True,
+            )
+            loss = loss + filter_outputs.loss
         loss.backward()
         optimizer.step()
         pbar.set_description(f"loss: {loss.item():.3f}")
@@ -131,6 +155,7 @@ def eval(dataloader, model, tokenizer, args):
     pbar = tqdm(dataloader)
     with torch.no_grad():
         for sample in pbar:
+            # calculate selection loss
             feature_dict = EasyDict(
                 scene_feature=sample.scene_feature.to("cpu"),
                 scene_insert_loc=sample.scene_insert_loc,
@@ -153,8 +178,25 @@ def eval(dataloader, model, tokenizer, args):
                     feature_dict=feature_dict,
                     output_hidden_states=True,
                 )
-
-            loss = outputs.loss
+            loss = output.loss
+            # calculate filter loss
+            if args.prefiltering:
+                filter_input_ids = sample.filter_input_ids.to("cpu")
+                filter_attention_mask = sample.filter_attention_mask.to("cpu")
+                filter_labels = filter_input_ids.clone()
+                filter_answer_indices = torch.where(filter_labels == 22550)[0]
+                for j, answer_idx in enumerate(filter_answer_indices):
+                    filter_labels[j, : answer_idx + 2] = -100
+                filter_labels[filter_labels == tokenizer.pad_token_id] = -100
+                with torch.autocase(device_type="cpu"):
+                    filter_outputs = model(
+                        input_ids=filter_input_ids,
+                        attention_mask=filter_attention_mask,
+                        labels=filter_labels,
+                        feature_dict=None,
+                        output_hidden_states=True,
+                    )
+                loss = loss + filter_outputs.loss
             total_loss += loss.item()
             total_sample += input_ids.shape[0]
             pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
@@ -209,7 +251,8 @@ def main():
     # Jiachen TODO: Add parameters for your feature
     # 1. Whether we are going to use the prefiltering
     # 2. How many object categories we are going to keep (5? 10? 20?)
-
+    parser.add_argument("--prefiltering", action="store_true", default=False)
+    parser.add_argument("--top_k_categories", type=int, default=5)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -239,6 +282,8 @@ def main():
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
         action_memory=args.action_memory,
+        prefiltering=args.prefiltering,
+        top_k_categories=args.top_k_categories,
         tokenizer=tokenizer,
         max_length=2048,
     )

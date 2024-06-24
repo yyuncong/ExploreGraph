@@ -51,12 +51,15 @@ class ExploreDataset(Dataset):
         select_token=SELECT_TOKEN,
         egocentric_views=False,
         action_memory=False,
+        prefiltering = False,
         # Jiachen TODO: add your parameter here
+        top_k_categories=5,
         num_egocentric_views=5,
         split="train",
     ):
         # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict")
+        self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         # exploration_path = (
         #     "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
         # )
@@ -67,7 +70,9 @@ class ExploreDataset(Dataset):
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
         self.egocentric_views = egocentric_views
         self.action_memory = action_memory
+        self.prefiltering = prefiltering
         self.num_egocentric_views = num_egocentric_views
+        self.top_k_categories = top_k_categories
         # self.frontier_token = frontier_token
         # self.frontier_token_id = self.tokenizer.convert_tokens_to_ids(self.frontier_token)
         # self.select_token = select_token
@@ -84,7 +89,8 @@ class ExploreDataset(Dataset):
     def load_data(self):
 
         # Jiachen TODO: load your "question/scene to ranking json" here
-
+        with open(self.ranking_path,'r') as f:
+            self.candidate_rankings = json.load(f)
         # load scene feature into dict
         self.scenes = {}
         for scene in os.listdir(self.scene_dir):
@@ -181,10 +187,10 @@ class ExploreDataset(Dataset):
         # which might include the following steps
         # 1. load the full list of ranking
         # 2. remove unseen object categories from the full list
-        # 3. Take top k object categories as specified by on of the parameter
+        # 3. Take top k object categories as specified by one of the parameter
         # 4. Format the filtering question with the scene graph class names
         # 5. Format the filtering answer with the filtered ranking list
-        # 6. Format the selection question with the filtered ranking list
+        # 6. Format the selection question with the filtered ranking list (Need further confirmation)
         # 7. Output filter_input_ids/filter_attention_mask/filter_length for the filtering question as well
 
         # try:
@@ -192,6 +198,8 @@ class ExploreDataset(Dataset):
         step = self.data[idx]
         episode = self.episodes[step["episode_id"]]
         scene = self.scenes[episode["scene"]]
+        # Jiachen TODO 1: load ranking
+        ranking = self.candidate_rankings[episode["question"]+"_"+episode["scene"]]
 
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
@@ -221,6 +229,8 @@ class ExploreDataset(Dataset):
             text += "/\n"
 
         # replace scene graph in each steps with scene feature
+        # Jiachen TODO 2: extract seen object categories at the same time
+        seen_categories = set()
         prediction = np.array(step["prediction"])
         object_features = []
         remove_indices = []
@@ -235,13 +245,16 @@ class ExploreDataset(Dataset):
                     object_features.append(object_feature)
                     class_name = obj_map[str(sid)]
                     text += f"object {object_index} {class_name} <scene> "
+                    # Jiachen TODO 2
+                    seen_categories.add(class_name)
                     object_index += 1
                 except:
                     remove_indices.append(i)
+                    
         if object_index == 0:
             text += f"No object available "
         text += "/\n"
-
+        
         prediction = np.delete(prediction, remove_indices)
         prediction = torch.tensor(prediction)
         assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
@@ -289,7 +302,8 @@ class ExploreDataset(Dataset):
 
         text += "Answer: "
         text += answer + self.tokenizer.eos_token
-
+        
+        # randomly choose another item
         if object_features is None and frontier_features is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
@@ -339,7 +353,56 @@ class ExploreDataset(Dataset):
         scene_insert_loc = (
             (input_ids == self.scene_token_id).nonzero()[:, 1].reshape(-1)
         )
-
+        
+        if self.prefiltering:
+            # Jiachen TODO 2: remove unseen object categories
+            # Jiachen TODO 3: take top k object categories
+            ranking = [obj for obj in ranking if obj in seen_categories]
+            ranking = ranking[:self.top_k_categories]
+            # Jiachen TODO 4: format the filtering question
+            filter_text = f"Question: {episode['question']}\n"
+            filter_text += f"Select objects that can help answer the question \n"
+            filter_text += "These are the objects available for selection in current scene graph\n"
+            for class_name in seen_categories:
+                filter_text += f"{class_name} \n"
+            # only require selection when there are more than k objects
+            if len(seen_categories) == 0:
+                filter_text += "No object available \n"
+            filter_text += f"Select the top {len(ranking)} important objects that can help answer the question \n"
+            filter_text += "Rank them based on their importance from high to low \n"
+            filter_text += "Reprint the name of kept objects. Each object one line \n"
+            filter_text += "If no object should be selected, just type 'None' \n"
+            
+            # Jiachen TODO 5: format the filtering answer
+            answer = "\n".join(ranking) if len(ranking) > 0 else 'None'
+            filter_text += "Answer: "
+            filter_text += answer + self.tokenizer.eos_token
+            # Jiachen TODO 7: output filter_input_ids/filter_attention_mask/filter_length for the filtering question
+            filter_text = self.tokenizer(
+                filter_text,
+                return_tensors="pt",
+                max_length=self.max_length,
+                truncation=True,
+                padding="max_length",
+            )
+            filter_input_ids = filter_text["input_ids"]
+            filter_length = torch.nonzero(filter_input_ids).shape[0]
+            filter_attention_mask = filter_text["attention_mask"]
+        
+            return EasyDict(
+                text=text,
+                input_ids=input_ids,
+                length=length,
+                scene_length=len(scene_feature),
+                attention_mask=attention_mask,
+                scene_feature=scene_feature,
+                scene_insert_loc=scene_insert_loc,
+                # Jiachen TODO 7
+                filter_input_ids=filter_input_ids,
+                filter_length=filter_length,
+                filter_attention_mask=filter_attention_mask,
+            )
+        
         return EasyDict(
             text=text,
             input_ids=input_ids,
@@ -354,6 +417,7 @@ class ExploreDataset(Dataset):
         # because sos token is added, the max_length should be +1?
         max_length = max(b.length for b in batch) + 1
         max_scene_length = max(b.scene_feature.shape[0] for b in batch)
+        max_filter_length = max(b.filter_length for b in batch) + 1
         # max_frontier_length = max(b.frontier_feature.shape[0] for b in batch)
 
         scene_feature = torch.zeros((len(batch), max_scene_length, 1024))
@@ -363,17 +427,33 @@ class ExploreDataset(Dataset):
             scene_feature[j, : b.scene_feature.shape[0]] = b.scene_feature
             # frontier_feature[j, :b.frontier_feature.shape[0]] = b.frontier_feature
             scene_insert_loc[j, : b.scene_insert_loc.shape[0]] = b.scene_insert_loc
-
+        
+        if self.prefiltering:
+            return EasyDict(
+                input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
+                attention_mask=torch.cat([b.attention_mask for b in batch])[
+                    ..., :max_length
+                ],
+                scene_feature=scene_feature,
+                scene_insert_loc=scene_insert_loc.to(torch.long),
+                scene_length=torch.tensor([b.scene_length for b in batch]),
+                max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
+                # Jiachen TODO 7
+                filter_input_ids=torch.cat([b.filter_input_ids for b in batch])[..., :max_filter_length],
+                filter_attention_mask = torch.cat([b.filter_attention_mask for b in batch])[
+                    ..., :max_filter_length
+                ],
+            )
         return EasyDict(
-            input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
-            attention_mask=torch.cat([b.attention_mask for b in batch])[
-                ..., :max_length
-            ],
-            scene_feature=scene_feature,
-            scene_insert_loc=scene_insert_loc.to(torch.long),
-            scene_length=torch.tensor([b.scene_length for b in batch]),
-            max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
-        )
+                input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
+                attention_mask=torch.cat([b.attention_mask for b in batch])[
+                    ..., :max_length
+                ],
+                scene_feature=scene_feature,
+                scene_insert_loc=scene_insert_loc.to(torch.long),
+                scene_length=torch.tensor([b.scene_length for b in batch]),
+                max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
+            )
 
     # split the dataset by episode id
     def split_index(self, test_ratio=0.3):
