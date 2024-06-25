@@ -102,7 +102,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels[labels == tokenizer.pad_token_id] = -100
 
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
-        # print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
 
         optimizer.zero_grad()
 
@@ -129,16 +129,13 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
 
             # test output
+            '''
             print(
                 tokenizer.decode(
                     filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
                 )
             )
-            print(
-                tokenizer.decode(   
-                    filter_input_ids[0, :filter_answer_indices[0]+2]
-                )
-            )
+            '''
 
             filter_outputs = llava_model(
                 input_ids=filter_input_ids,
@@ -147,6 +144,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                 feature_dict=None,
                 output_hidden_states=True,
             )
+            print("filter loss:", filter_outputs.loss)
             loss = loss + filter_outputs.loss
         loss.backward()
         optimizer.step()
@@ -189,10 +187,18 @@ def eval(dataloader, model, tokenizer, args):
                 filter_input_ids = sample.filter_input_ids.to("cpu")
                 filter_attention_mask = sample.filter_attention_mask.to("cpu")
                 filter_labels = filter_input_ids.clone()
-                filter_answer_indices = torch.where(filter_labels == 22550)[0]
+                filter_answer_indices = torch.where(filter_labels == 22550)[1]
                 for j, answer_idx in enumerate(filter_answer_indices):
                     filter_labels[j, : answer_idx + 2] = -100
                 filter_labels[filter_labels == tokenizer.pad_token_id] = -100
+                # test output
+                '''
+                print(
+                    tokenizer.decode(
+                        filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+                    )
+                )
+                '''
                 with torch.autocase(device_type="cpu"):
                     filter_outputs = model(
                         input_ids=filter_input_ids,
@@ -337,12 +343,12 @@ def main():
         print("Start training epoch %d" % epoch)
 
         # Jiachen TODO: update train_one_epoch for your feature
-        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+        #train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
         print("evaluating")
         # Jiachen TODO: update eval for your feature
-        eval(val_dataloader, model, tokenizer)
+        eval(val_dataloader, model, tokenizer, args)
 
 
 if __name__ == "__main__":

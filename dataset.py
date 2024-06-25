@@ -85,6 +85,7 @@ class ExploreDataset(Dataset):
         self.indices = train_index if split == "train" else test_index
         self.obj_not_found_indices = set({})
         self.too_many_objects_indices = set({})
+        self.answer_obj_filtered_indices = set({})
 
     def load_data(self):
 
@@ -200,7 +201,7 @@ class ExploreDataset(Dataset):
         scene = self.scenes[episode["scene"]]
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"]+"_"+episode["scene"]]
-
+        #print("full ranking:", ranking)
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
@@ -230,43 +231,68 @@ class ExploreDataset(Dataset):
 
         # replace scene graph in each steps with scene feature
         # Jiachen TODO 2: extract seen object categories at the same time
-        seen_categories = set()
         prediction = np.array(step["prediction"])
-        object_features = []
-        remove_indices = []
-        text += "These are the objects already in our scene graph:\n"
+        object_features, object_classes, keep_indices = [], [], []
         object_index = 0
+        class2object = defaultdict(list)
         for i, sid in enumerate(step["scene_graph"]):
             if str(sid) not in scene.keys() or str(sid) not in obj_map.keys():
-                remove_indices.append(i)
+                continue
             else:
                 try:
                     object_feature = torch.load(scene[str(sid)], map_location="cpu")
-                    class_name = obj_map[str(sid)]
-                    # Jiachen TODO 6: when using prefiltering, 
-                    # only the intersection of seen categories and ranking should be kept
-                    if self.prefiltering and class_name not in ranking:
-                        remove_indices.append(i)
-                    else:
-                        object_features.append(object_feature)
-                        text += f"object {object_index} {class_name} <scene> "
-                        # Jiachen TODO 2
-                        seen_categories.add(class_name)
-                        object_index += 1
+                    keep_indices.append(i)
+                    object_classes.append(obj_map[str(sid)])
+                    object_features.append(object_feature)
+                    class2object[obj_map[str(sid)]].append(object_index)
+                    object_index += 1
                 except:
-                    remove_indices.append(i)
-                    
+                    continue
+        #print("original indices:", keep_indices)
+        #print("seen categories:", object_classes)
+        
+        # Data Problem
+        if not (np.where(prediction[keep_indices] == 1.0)[0].shape[0] + np.where(prediction[len(step["scene_graph"]):] == 1.0)[0].shape[0] == 1):
+            self.obj_not_found_indices.add(idx)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+        
+        if self.prefiltering:
+            # 1. filter unseen object categories in ranking
+            ranking = [cls for cls in ranking if cls in class2object.keys()]
+            #print("seen ranking:", ranking)
+            # 2. take top k object categories
+            ranking = ranking[: self.top_k_categories]
+            #print(f"top {self.top_k_categories} ranking:", ranking)
+            # 3. reformulate the object indices, classes and features
+            keep_indices = [
+                keep_indices[obj_idx] for cls in ranking for obj_idx in class2object[cls]
+            ]
+            object_classes = [cls for cls in ranking for _ in class2object[cls]]
+            object_features = [
+                object_features[obj_idx]
+                for cls in ranking
+                for obj_idx in class2object[cls]
+            ]
+            
+            #print("filtered indices:", keep_indices)
+            #print("filtered categories:", object_classes)
+            
+        text += "These are the objects already in our scene graph:\n"
+        for i, class_name in enumerate(object_classes):
+            text += f"object {i} {class_name} <scene> "
+
         if object_index == 0:
             text += f"No object available "
         text += "/\n"
-        
-        prediction = np.delete(prediction, remove_indices)
+
+
+        prediction = np.concatenate((prediction[keep_indices],prediction[len(step["scene_graph"]):]))
         prediction = torch.tensor(prediction)
         assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
-
-        # Data problem
+        # GPT problem: prefiltering filter out the answer object
         if not np.where(prediction == 1.0)[0].shape[0] == 1:
-            self.obj_not_found_indices.add(idx)
+            self.answer_obj_filtered_indices.add(idx)
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
 
@@ -362,24 +388,22 @@ class ExploreDataset(Dataset):
         if self.prefiltering:
             # Jiachen TODO 2: remove unseen object categories
             # Jiachen TODO 3: take top k object categories
-            ranking = [obj for obj in ranking if obj in seen_categories]
-            ranking = ranking[:self.top_k_categories]
             # Jiachen TODO 4: format the filtering question
             filter_text = f"Question: {episode['question']}\n"
             filter_text += f"Select objects that can help answer the question \n"
             filter_text += "These are the objects available for selection in current scene graph\n"
-            for class_name in seen_categories:
+            for class_name in class2object.keys():
                 filter_text += f"{class_name} \n"
             # only require selection when there are more than k objects
-            if len(seen_categories) == 0:
+            if object_index == 0:
                 filter_text += "No object available \n"
-            filter_text += f"Select the top {len(ranking)} important objects\n"
+            #filter_text += f"Select the top {len(ranking)} important objects\n"
             filter_text += "Rank them based on their importance from high to low \n"
-            filter_text += "Reprint the name of kept objects. Each object one line \n"
-            filter_text += "If no object should be selected, just type 'None' \n"
+            filter_text += "Reprint the name of objects in ranked order. Each object one line \n"
+            filter_text += "If currently no object available, just type 'No object available' \n"
             
             # Jiachen TODO 5: format the filtering answer
-            answer = "\n".join(ranking) if len(ranking) > 0 else 'None'
+            answer = "\n".join(ranking) if object_index > 0 else 'No object available'
             filter_text += "Answer: "
             filter_text += answer + self.tokenizer.eos_token
             # Jiachen TODO 7: output filter_input_ids/filter_attention_mask/filter_length for the filtering question
