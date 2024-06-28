@@ -62,30 +62,30 @@ def prepare_action_memory(memory_path):
     return text, memory_feature
 
 
-def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length):
+def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length, topk):
     filter_text = f"Question: {question}\n"
-    filter_text += f"Select objects that can help answer the question \n"
-    filter_text += (
-        "These are the objects available for selection in current scene graph\n"
-    )
+    # filter_text += f"Select objects that can help answer the question \n"
+    filter_text += "These are the objects available in current scene graph\n"
     for class_name in classes:
         filter_text += f"{class_name} \n"
     # only require selection when there are more than k objects
     if len(classes) == 0:
         filter_text += "No object available \n"
     # filter_text += f"Select the top {len(ranking)} important objects\n"
-    filter_text += "Rank them based on their importance from high to low \n"
-    filter_text += (
-        "Reprint the name of objects in ranked order. Each object one line \n"
-    )
-    filter_text += (
-        "If currently no object available, just type 'No object available' \n"
-    )
+    filter_text += f"Rank at most top {topk} of them from high to low based on their importance on answering the question\n"
+    # filter_text += (
+    #     "Reprint the name of objects in ranked order. Each object one line \n"
+    # )
+    # filter_text += (
+    #     "If currently no object available, just type 'No object available' \n"
+    # )
 
     # Jiachen TODO 5: format the filtering answer
-    answer = "\n".join(ranking) if len(classes) > 0 else "No object available"
+    answer = "\n".join(ranking[:topk]) if len(classes) > 0 else "No object available"
     filter_text += "Answer: "
     filter_text += answer + tokenizer.eos_token
+    # print("filtering prompt", len(filter_text))
+    # print(filter_text)
     # Jiachen TODO 7: output filter_input_ids/filter_attention_mask/filter_length for the filtering question
     filter_text = tokenizer(
         filter_text,
@@ -119,13 +119,13 @@ class ExploreDataset(Dataset):
         split="train",
     ):
         # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
-        self.scene_dir = os.path.join(scene_path, "scene_feature_dict")
+        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_flexible")
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         # exploration_path = (
         #     "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
         # )
         self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_new_tempt")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_new")
         self.tokenizer = tokenizer
         self.scene_token = scene_token
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
@@ -148,12 +148,49 @@ class ExploreDataset(Dataset):
         self.too_many_objects_indices = set({})
         self.answer_obj_filtered_indices = set({})
 
+    def load_step(self, step_path):
+        with open(step_path, "r") as f:
+            stepdata = json.load(f)
+
+        epi_path = "/".join(step_path.split("/")[:-1])
+        step_file_name = step_path.split("/")[-1]
+        step = int(step_file_name.split(".")[0])
+
+        # add paths for frontiers
+        stepdata["frontier_features"] = {}
+        frontier_folder = os.path.join(epi_path, "frontier_rgb")
+        for frontier in stepdata["frontiers"]:
+            # placeholder for loading frontier feature
+            rgb_id = frontier["rgb_id"]
+            # load frontier feature
+            # feature = torch.load(os.path.join(frontier_folder, rgb_id.replace(".png", ".pt")),
+            #                         map_location = 'cpu')
+            feature = os.path.join(frontier_folder, rgb_id.replace(".png", ".pt"))
+            # feature = torch.zeros(1024)
+            stepdata["frontier_features"][rgb_id] = feature
+            # front['rgb_id'] = os.path.join(epi_path,'frontier_rgb',front['rgb_id'])
+        # remove frontier info, can be removed in case other features needed
+        # del stepdata['frontiers']
+        if stepdata["previous_choice"] is not None:
+            stepdata["previous_choice"] = os.path.join(
+                frontier_folder,
+                stepdata["previous_choice"].replace(".png", ".pt"),
+            )
+
+        stepdata["egocentric_features"] = {}
+        for view_idx in range(self.num_egocentric_views):
+            egocentric_view_folder = os.path.join(epi_path, f"egocentric")
+            featrue = os.path.join(egocentric_view_folder, f"{step}_view_{view_idx}.pt")
+            stepdata["egocentric_features"][view_idx] = featrue
+        return stepdata
+
     def load_data(self):
 
         # Jiachen TODO: load your "question/scene to ranking json" here
+
+        # load scene feature into dict
         with open(self.ranking_path, "r") as f:
             self.candidate_rankings = json.load(f)
-        # load scene feature into dict
         self.scenes = {}
         for scene in os.listdir(self.scene_dir):
             self.scenes[scene] = {}
@@ -178,6 +215,8 @@ class ExploreDataset(Dataset):
         # TODO later: Remove num skipped to improve error handling
         self.episodes = []
         data = []
+        self.episode2step = defaultdict(list)
+        data_count = 0
         num_skipped = 0
         for i, episode in enumerate(os.listdir(self.explore_dir)):
             i -= num_skipped
@@ -194,51 +233,104 @@ class ExploreDataset(Dataset):
             # load step data
             steps_data = []
             for step in range(metadata["episode_length"]):
-                with open(os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")) as f:
-                    stepdata = json.load(f)
-                # link each step to its episode
-                stepdata["episode_id"] = i
-                stepdata["target_obj_class"] = metadata["target_obj_class"]
-
-                # add paths for frontiers
-                frontier_features = []
-                stepdata["frontier_features"] = {}
-                frontier_folder = os.path.join(epi_path, "frontier_rgb")
-                for frontier in stepdata["frontiers"]:
-                    # placeholder for loading frontier feature
-                    rgb_id = frontier["rgb_id"]
-                    # load frontier feature
-                    # feature = torch.load(os.path.join(frontier_folder, rgb_id.replace(".png", ".pt")),
-                    #                         map_location = 'cpu')
-                    feature = os.path.join(
-                        frontier_folder, rgb_id.replace(".png", ".pt")
-                    )
-                    # feature = torch.zeros(1024)
-                    stepdata["frontier_features"][rgb_id] = feature
-                    # front['rgb_id'] = os.path.join(epi_path,'frontier_rgb',front['rgb_id'])
-                # remove frontier info, can be removed in case other features needed
-                # del stepdata['frontiers']
-                if stepdata["previous_choice"] is not None:
-                    stepdata["previous_choice"] = os.path.join(
-                        frontier_folder,
-                        stepdata["previous_choice"].replace(".png", ".pt"),
-                    )
-
-                stepdata["egocentric_features"] = {}
-                for view_idx in range(self.num_egocentric_views):
-                    egocentric_view_folder = os.path.join(epi_path, f"egocentric")
-                    featrue = os.path.join(
-                        egocentric_view_folder, f"{i}_view_{view_idx}.pt"
-                    )
-                    stepdata["egocentric_features"][view_idx] = featrue
-                steps_data.append(stepdata)
+                stepdata_path = os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")
+                steps_data.append((stepdata_path, i))
+                self.episode2step[i].append(data_count)
             data.extend(steps_data)
 
-        # link steps to episodes, which can be used for dataset split
-        self.episode2step = defaultdict(list)
-        for i in range(len(data)):
-            self.episode2step[data[i]["episode_id"]].append(i)
         return data
+
+    # def load_data(self):
+
+    #     # Jiachen TODO: load your "question/scene to ranking json" here
+    #     with open(self.ranking_path, "r") as f:
+    #         self.candidate_rankings = json.load(f)
+    #     # load scene feature into dict
+    #     self.scenes = {}
+    #     for scene in os.listdir(self.scene_dir):
+    #         self.scenes[scene] = {}
+    #         scene_fold = os.path.join(self.scene_dir, scene)
+    #         # need to confirm: if object in different scene should have different features
+    #         for object_f in os.listdir(scene_fold):
+    #             object_id = object_f[:-3]
+    #             try:
+    #                 # object_feature  = torch.load(os.path.join(scene_fold, object_f),
+    #                 #                             map_location = 'cpu')
+    #                 # self.scenes[scene][object_id] = object_feature
+    #                 self.scenes[scene][object_id] = os.path.join(scene_fold, object_f)
+    #             except:
+    #                 continue
+
+    #     self.obj_json_map = {}
+    #     for obj_json in os.listdir(self.obj_bbox_dir):
+    #         scene_id = obj_json.split(".")[0]
+    #         self.obj_json_map[scene_id] = os.path.join(self.obj_bbox_dir, obj_json)
+
+    #     # load episode data: metadata is managed with self.episodes
+    #     # TODO later: Remove num skipped to improve error handling
+    #     self.episodes = []
+    #     data = []
+    #     num_skipped = 0
+    #     for i, episode in enumerate(os.listdir(self.explore_dir)):
+    #         i -= num_skipped
+    #         epi_path = os.path.join(self.explore_dir, episode)
+    #         # load metadata
+    #         try:
+    #             with open(os.path.join(epi_path, "metadata.json"), "r") as f:
+    #                 metadata = json.load(f)
+    #         except:
+    #             num_skipped += 1
+    #             continue
+    #         self.episodes.append(metadata)
+
+    #         # load step data
+    #         steps_data = []
+    #         for step in range(metadata["episode_length"]):
+    #             with open(os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")) as f:
+    #                 stepdata = json.load(f)
+    #             # link each step to its episode
+    #             stepdata["episode_id"] = i
+    #             stepdata["target_obj_class"] = metadata["target_obj_class"]
+
+    #             # add paths for frontiers
+    #             frontier_features = []
+    #             stepdata["frontier_features"] = {}
+    #             frontier_folder = os.path.join(epi_path, "frontier_rgb")
+    #             for frontier in stepdata["frontiers"]:
+    #                 # placeholder for loading frontier feature
+    #                 rgb_id = frontier["rgb_id"]
+    #                 # load frontier feature
+    #                 # feature = torch.load(os.path.join(frontier_folder, rgb_id.replace(".png", ".pt")),
+    #                 #                         map_location = 'cpu')
+    #                 feature = os.path.join(
+    #                     frontier_folder, rgb_id.replace(".png", ".pt")
+    #                 )
+    #                 # feature = torch.zeros(1024)
+    #                 stepdata["frontier_features"][rgb_id] = feature
+    #                 # front['rgb_id'] = os.path.join(epi_path,'frontier_rgb',front['rgb_id'])
+    #             # remove frontier info, can be removed in case other features needed
+    #             # del stepdata['frontiers']
+    #             if stepdata["previous_choice"] is not None:
+    #                 stepdata["previous_choice"] = os.path.join(
+    #                     frontier_folder,
+    #                     stepdata["previous_choice"].replace(".png", ".pt"),
+    #                 )
+
+    #             stepdata["egocentric_features"] = {}
+    #             for view_idx in range(self.num_egocentric_views):
+    #                 egocentric_view_folder = os.path.join(epi_path, f"egocentric")
+    #                 featrue = os.path.join(
+    #                     egocentric_view_folder, f"{i}_view_{view_idx}.pt"
+    #                 )
+    #                 stepdata["egocentric_features"][view_idx] = featrue
+    #             steps_data.append(stepdata)
+    #         data.extend(steps_data)
+
+    #     # link steps to episodes, which can be used for dataset split
+    #     self.episode2step = defaultdict(list)
+    #     for i in range(len(data)):
+    #         self.episode2step[data[i]["episode_id"]].append(i)
+    #     return data
 
     def __len__(self):
         return len(self.data)
@@ -257,8 +349,9 @@ class ExploreDataset(Dataset):
 
         # try:
         # load a whole episode and each step within it
-        step = self.data[idx]
-        episode = self.episodes[step["episode_id"]]
+        step_path, episode_id = self.data[idx]
+        step = self.load_step(step_path)
+        episode = self.episodes[episode_id]
         scene = self.scenes[episode["scene"]]
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
@@ -411,7 +504,7 @@ class ExploreDataset(Dataset):
         if self.action_memory and memory_feature is not None:
             scene_feature = torch.cat([memory_feature, scene_feature], dim=0)
 
-        if len(scene_feature) > 40:
+        if len(scene_feature) > 120:
             # take a random integer index
             # random_idx = np.random.randint(0, len(self.data))
             self.too_many_objects_indices.add(idx)
@@ -423,6 +516,8 @@ class ExploreDataset(Dataset):
         # remove scene graph id --- remove this if we need to keep id
 
         # make sure all things are included
+        # print("selection prompt", len(text))
+        # print(text)
         assert self.max_length > len(text)
         assert self.max_length > len(
             scene_feature
@@ -464,6 +559,7 @@ class ExploreDataset(Dataset):
                 class2object.keys(),
                 ranking,
                 self.max_length,
+                self.top_k_categories,
             )
         return input_dict
 
@@ -520,7 +616,7 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 650
+            if int(self.episodes[i]["scene"].split("-")[0]) > 700
         ]
         train_index, test_index = [], []
         for i in self.episode2step.keys():

@@ -103,6 +103,8 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
 
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
         print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        # print()
+        # print(tokenizer.decode(labels[0][labels[0] != -100]))
 
         optimizer.zero_grad()
 
@@ -113,7 +115,8 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             feature_dict=feature_dict,
             output_hidden_states=True,
         )
-        loss = outputs.loss
+        selection_loss = outputs.loss
+        combined_loss = selection_loss
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
         # Add the values of the two losses to the set_description line
@@ -129,13 +132,17 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
 
             # test output
-            '''
             print(
                 tokenizer.decode(
                     filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
                 )
             )
-            '''
+            # print()
+            # print(
+            #     tokenizer.decode(
+            #         filter_labels[0][filter_labels[0] != -100]
+            #     )
+            # )
 
             filter_outputs = llava_model(
                 input_ids=filter_input_ids,
@@ -144,16 +151,23 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                 feature_dict=None,
                 output_hidden_states=True,
             )
-            print("filter loss:", filter_outputs.loss)
-            loss = loss + filter_outputs.loss
-        loss.backward()
+            filter_loss = filter_outputs.loss
+            combined_loss += filter_loss
+        combined_loss.backward()
         optimizer.step()
-        pbar.set_description(f"loss: {loss.item():.3f}")
+        if args.prefiltering:
+            pbar.set_description(
+                f"loss: {combined_loss.item():.3f}, selection_loss: {selection_loss.item():.3f}, filter_loss: {filter_loss.item():.3f}"
+            )
+        else:
+            pbar.set_description(f"loss: {combined_loss.item():.3f}")
 
 
 def eval(dataloader, model, tokenizer, args):
     model.eval()
-    total_loss = 0
+    total_combined_loss = 0
+    total_selection_loss = 0
+    total_filter_loss = 0
     total_sample = 0
     pbar = tqdm(dataloader)
     with torch.no_grad():
@@ -181,7 +195,8 @@ def eval(dataloader, model, tokenizer, args):
                     feature_dict=feature_dict,
                     output_hidden_states=True,
                 )
-            loss = output.loss
+            selection_loss = outputs.loss
+            combined_loss = selection_loss
             # calculate filter loss
             if args.prefiltering:
                 filter_input_ids = sample.filter_input_ids.to("cpu")
@@ -192,13 +207,13 @@ def eval(dataloader, model, tokenizer, args):
                     filter_labels[j, : answer_idx + 2] = -100
                 filter_labels[filter_labels == tokenizer.pad_token_id] = -100
                 # test output
-                '''
+                """
                 print(
                     tokenizer.decode(
                         filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
                     )
                 )
-                '''
+                """
                 with torch.autocase(device_type="cpu"):
                     filter_outputs = model(
                         input_ids=filter_input_ids,
@@ -207,10 +222,18 @@ def eval(dataloader, model, tokenizer, args):
                         feature_dict=None,
                         output_hidden_states=True,
                     )
-                loss = loss + filter_outputs.loss
-            total_loss += loss.item()
+                filter_loss = filter_outputs.loss
+                combined_loss += filter_loss
+            total_combined_loss += combined_loss.item()
+            total_selection_loss += selection_loss.item()
             total_sample += input_ids.shape[0]
-            pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
+            if args.prefiltering:
+                total_filter_loss += filter_loss.item()
+                pbar.set_description(
+                    f"loss: {total_combined_loss / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+                )
+            else:
+                pbar.set_description(f"loss: {total_combined_loss / total_sample:.3f}")
 
 
 def main():
@@ -348,7 +371,7 @@ def main():
         # save_checkpoint(model, args.folder, epoch, args)
         print("evaluating")
         # Jiachen TODO: update eval for your feature
-        #eval(val_dataloader, model, tokenizer, args)
+        # eval(val_dataloader, model, tokenizer, args)
 
 
 if __name__ == "__main__":
