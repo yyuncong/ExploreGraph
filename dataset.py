@@ -357,7 +357,7 @@ class ExploreDataset(Dataset):
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         # print("full ranking:", ranking)
-        
+
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
