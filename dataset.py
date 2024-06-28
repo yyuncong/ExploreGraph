@@ -56,18 +56,23 @@ class ExploreDataset(Dataset):
         split="train",
     ):
         # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
-        self.scene_dir = os.path.join(scene_path, "scene_feature_dict")
+        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_tight")
         # exploration_path = (
         #     "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
         # )
         self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_new_tempt")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_new")
         self.tokenizer = tokenizer
         self.scene_token = scene_token
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
         self.egocentric_views = egocentric_views
         self.action_memory = action_memory
         self.num_egocentric_views = num_egocentric_views
+
+        self.num_too_many_objects = 0
+        self.obj_not_found_indices = set({})
+        self.too_many_objects_indices = set({})
+
         # self.frontier_token = frontier_token
         # self.frontier_token_id = self.tokenizer.convert_tokens_to_ids(self.frontier_token)
         # self.select_token = select_token
@@ -78,8 +83,7 @@ class ExploreDataset(Dataset):
 
         train_index, test_index = self.split_index()
         self.indices = train_index if split == "train" else test_index
-        self.obj_not_found_indices = set({})
-        self.too_many_objects_indices = set({})
+
 
     def load_data(self):
 
@@ -129,6 +133,11 @@ class ExploreDataset(Dataset):
                 with open(os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")) as f:
                     stepdata = json.load(f)
                 # link each step to its episode
+
+                if len(stepdata["prediction"]) > 90:
+                    self.num_too_many_objects += 1
+                    continue
+
                 stepdata["episode_id"] = i
                 stepdata["target_obj_class"] = metadata["target_obj_class"]
 
@@ -160,7 +169,7 @@ class ExploreDataset(Dataset):
                 for view_idx in range(self.num_egocentric_views):
                     egocentric_view_folder = os.path.join(epi_path, f"egocentric")
                     featrue = os.path.join(
-                        egocentric_view_folder, f"{i}_view_{view_idx}.pt"
+                        egocentric_view_folder, f"{step}_view_{view_idx}.pt"
                     )
                     stepdata["egocentric_features"][view_idx] = featrue
                 steps_data.append(stepdata)
@@ -191,8 +200,14 @@ class ExploreDataset(Dataset):
         # load a whole episode and each step within it
         step = self.data[idx]
         episode = self.episodes[step["episode_id"]]
-        scene = self.scenes[episode["scene"]]
 
+        # TODO: remove this when finishing the data processing
+        scene = self.scenes.get(episode["scene"])
+        if scene is None or len(scene.keys()) == 0:
+            # self.obj_not_found_indices.add(idx)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+        
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
@@ -307,13 +322,17 @@ class ExploreDataset(Dataset):
         if self.action_memory and memory_feature is not None:
             scene_feature = torch.cat([memory_feature, scene_feature], dim=0)
 
-        if len(scene_feature) > 40:
+        if len(scene_feature) > 55:
             # take a random integer index
             # random_idx = np.random.randint(0, len(self.data))
             self.too_many_objects_indices.add(idx)
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
             # return self.__getitem__(random_idx)
+
+        # if self.max_length > len(text):
+        #     index = np.random.choice(self.indices)
+        #     return self.__getitem__(index)
 
         step["scene_feature"] = scene_feature
         # remove scene graph id --- remove this if we need to keep id
@@ -382,7 +401,7 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 650
+            if int(self.episodes[i]["scene"].split("-")[0]) > 700
         ]
         train_index, test_index = [], []
         for i in self.episode2step.keys():

@@ -172,12 +172,12 @@ def eval(dataloader, model, tokenizer, args):
     with torch.no_grad():
         for sample in pbar:
             feature_dict = EasyDict(
-                scene_feature=sample.scene_feature.to("cuda"),
+                scene_feature=sample.scene_feature,
                 scene_insert_loc=sample.scene_insert_loc,
                 scene_length=sample.scene_length,
             )
-            input_ids = sample.input_ids.to("cuda")
-            attention_mask = sample.attention_mask.to("cuda")
+            input_ids = sample.input_ids
+            attention_mask = sample.attention_mask
             labels = input_ids.clone()
             answer_indices = torch.where(labels == 22550)[1]
 
@@ -185,70 +185,60 @@ def eval(dataloader, model, tokenizer, args):
                 labels[j, : answer_idx + 2] = -100
 
             labels[labels == tokenizer.pad_token_id] = -100
-            with torch.autocast(device_type="cuda"):
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    feature_dict=feature_dict,
-                    output_hidden_states=True,
-                )
+            # with torch.autocast(device_type="cuda"):
+            #     outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels, feature_dict=feature_dict, output_hidden_states=True)
 
-            loss = outputs.loss
-            total_loss += loss.item()
-            total_sample += input_ids.shape[0]
-            # pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
+            # loss = outputs.loss
+            # total_loss += loss.item()
+            # total_sample += input_ids.shape[0]
+            # # pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
 
-            input_ids = sample.input_ids.to("cuda")
-            answer_ind = torch.where(sample.input_ids == 22550)[1][0].item()
-            answer_ids = input_ids[:, answer_ind + 2 : answer_ind + 6]
-            input_ids = input_ids[:, : answer_ind + 2]
+            # input_ids = sample.input_ids.to("cuda")
+            # answer_ind = torch.where(sample.input_ids==22550)[1][0].item()
+            # answer_ids = input_ids[:, answer_ind+2:answer_ind+6]
+            # input_ids = input_ids[:, :answer_ind+2]
 
-            with torch.inference_mode() and torch.autocast(device_type="cuda"):
-                output_ids = model.generate(
-                    input_ids,
-                    feature_dict=feature_dict,
-                    do_sample=False,
-                    max_new_tokens=10,
-                )
-            outputs = (
-                tokenizer.decode(output_ids[0, input_ids.shape[1] :])
-                .replace("</s>", "")
-                .strip()
-            )
-            gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
+            # with torch.inference_mode() and torch.autocast(device_type="cuda"):
+            #     output_ids = model.generate(
+            #         input_ids,
+            #         feature_dict=feature_dict,
+            #         do_sample=False,
+            #         max_new_tokens=10,
+            #     )
+            # outputs = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).replace("</s>", "").strip()
+            # gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
 
-            gt_type = gt.split(" ")[0]
-            gt_id = gt.split(" ")[1]
-            outputs_type = outputs.split(" ")[0]
-            outputs_id = outputs.split(" ")[1]
-            if gt_type == "object":
-                object_gt_total += 1
-                if gt_type == outputs_type:
-                    object_type_correct += 1
-                    if gt_id == outputs_id:
-                        object_id_correct += 1
-            if gt_type == "frontier":
-                frontier_gt_total += 1
-                if gt_type == outputs_type:
-                    frontier_type_correct += 1
-                    if gt_id == outputs_id:
-                        frontier_id_correct += 1
+            # gt_type = gt.split(" ")[0]
+            # gt_id = gt.split(" ")[1]
+            # outputs_type = outputs.split(" ")[0]
+            # outputs_id = outputs.split(" ")[1]
+            # if gt_type == "object":
+            #     object_gt_total += 1
+            #     if gt_type == outputs_type:
+            #         object_type_correct += 1
+            #         if gt_id == outputs_id:
+            #             object_id_correct += 1
+            # if gt_type == "frontier":
+            #     frontier_gt_total += 1
+            #     if gt_type == outputs_type:
+            #         frontier_type_correct += 1
+            #         if gt_id == outputs_id:
+            #             frontier_id_correct += 1
 
-            total += 1
-            if gt.lower().strip() == outputs.lower().strip():
-                correct += 1
+            # total += 1
+            # if gt.lower().strip() == outputs.lower().strip():
+            #     correct += 1
 
-            pbar.set_description(f"acc: {correct / total}")
+            # pbar.set_description(f"acc: {correct / total}")
 
-    print("accuracy:", correct / total)
-    print("object type accuracy:", object_type_correct / object_gt_total)
-    print("object id accuracy:", object_id_correct / object_gt_total)
-    print("frontier type accuracy:", frontier_type_correct / frontier_gt_total)
-    print("frontier id accuracy:", frontier_id_correct / frontier_gt_total)
-    print("loss:", total_loss / total_sample)
-    print("frontiers total:", frontier_gt_total)
-    print("objects total:", object_gt_total)
+    # print("accuracy:", correct / total)
+    # print("object type accuracy:", object_type_correct / object_gt_total)
+    # print("object id accuracy:", object_id_correct / object_gt_total)
+    # print("frontier type accuracy:", frontier_type_correct / frontier_gt_total)
+    # print("frontier id accuracy:", frontier_id_correct / frontier_gt_total)
+    # print("loss:", total_loss / total_sample)
+    # print("frontiers total:", frontier_gt_total)
+    # print("objects total:", object_gt_total)
 
 
 def main():
@@ -340,41 +330,60 @@ def main():
     # train_index, test_index = dataset.split_index(test_ratio=0.999)
     # train_dataset = Subset(train_total_dataset, train_index)
     val_dataset = Subset(val_total_dataset, test_index)
-    # dataloader = DataLoader(
+    # train_dataloader = DataLoader(
     #     train_dataset,
     #     batch_size=1,
     #     pin_memory=True,
     #     num_workers=1,
     #     collate_fn=train_total_dataset.collate_wrapper,
     # )
-    val_dataloader = DataLoader(
-        val_dataset,
-        batch_size=1,
+    # val_dataloader = DataLoader(
+    #     val_dataset,
+    #     batch_size=1,
+    #     pin_memory=True,
+    #     num_workers=1,
+    #     collate_fn=val_total_dataset.collate_wrapper,
+    # )
+
+    dataloader = DataLoader(
+        val_total_dataset,
+        batch_size=1024,
         pin_memory=True,
-        num_workers=1,
+        num_workers=0,
         collate_fn=val_total_dataset.collate_wrapper,
     )
+
+    train_object_set = set({})
+    val_object_set = set({})
+    val_new_object_set = set({})
+    # for index in train_dataset.dataset.indices:
+    #     step = train_dataset.dataset.data[index]
+    #     train_object_set.add(step["target_obj_class"])
+    # for index in val_dataset.dataset.indices:
+    #     step = val_dataset.dataset.data[index]
+    #     val_object_set.add(step["target_obj_class"])
+    #     if step["target_obj_class"] not in train_object_set:
+    #         val_new_object_set.add(step["target_obj_class"])
+
+    # print("num train object set:", len(train_object_set))
+    # print("num val object set:", len(val_object_set))
+    # print("num val new object set:", len(val_new_object_set))
 
     # freeze model (only train the projector?)
     model.requires_grad_(False)
     # model.requires_grad_(True)
     del model.model.vision_tower
-
-    saving_folder = args.folder
-    if args.egocentric_views:
-        saving_folder += "_ego"
-    if args.action_memory:
-        saving_folder += "_mem"
-    print(saving_folder)
-    args.folder = saving_folder
-
-    load_checkpoint(model, args, name=f"checkpoint_{args.ckpt_index}.pt")
+    # load_checkpoint(model, args, name=f"checkpoint_{args.ckpt_index}.pt")
     model = model.float()
 
     model = model.to("cuda")
 
     # start training
-    eval(val_dataloader, model, tokenizer, args)
+    eval(dataloader, model, tokenizer, args)
+
+    print("too many objects num (pre)", val_total_dataset.num_too_many_objects)
+    print("object not found num: ", len(val_total_dataset.obj_not_found_indices))
+    print("too many objects num: ", len(val_total_dataset.too_many_objects_indices))
 
 
 if __name__ == "__main__":
