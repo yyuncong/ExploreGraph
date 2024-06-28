@@ -154,31 +154,37 @@ class LlavaMetaForCausalLM(ABC):
     def prepare_inputs_labels_for_multimodal(
         self, input_ids, attention_mask, past_key_values, labels, feature_dict
     ):
-        feature_dict = EasyDict(feature_dict)
-        new_input_embeds = self.get_model().embed_tokens(input_ids)
-        new_labels = labels.clone() if labels is not None else None
-        if past_key_values is None:
-            feature_dict.scene_feature_proj = self.get_model().mm_projector(
-                feature_dict.scene_feature
-            )
-            #     # feature_dict.visual_feature_proj = self.get_model().mm_projector(feature_dict.visual_feature)
-            #     # feature_dict.tactile_feature_proj = self.get_model().tactile_projector(feature_dict.tactile_feature)
-            #     # feature_dict.sound_feature_proj = self.get_model().sound_projector(feature_dict.sound_feature)
-            new_input_embeds, new_labels = self._insert_feature(
+        if feature_dict is None:
+            new_input_embeds = self.get_model().embed_tokens(input_ids)
+            new_labels = labels.clone() if labels is not None else None
+            return (
+                None,
+                attention_mask,
+                past_key_values,
                 new_input_embeds,
                 new_labels,
-                feature_dict.scene_feature_proj,
-                feature_dict.scene_insert_loc,
-                feature_dict.scene_length,
+                feature_dict,
             )
-        #     # new_input_embeds, new_labels = self._insert_feature(new_input_embeds, new_labels, feature_dict.visual_feature_proj, feature_dict.visual_insert_loc)
-        #     # new_input_embeds, new_labels = self._insert_feature(new_input_embeds, new_labels, feature_dict.tactile_feature_proj, feature_dict.tactile_insert_loc)
-        #     # new_input_embeds, new_labels = self._insert_feature(new_input_embeds, new_labels, feature_dict.sound_feature_proj, feature_dict.sound_insert_loc)
-        return (
-            None,
-            attention_mask,
-            past_key_values,
-            new_input_embeds,
-            new_labels,
-            feature_dict,
-        )
+        else:
+            feature_dict = EasyDict(feature_dict)
+            new_input_embeds = self.get_model().embed_tokens(input_ids)
+            new_labels = labels.clone() if labels is not None else None
+            if past_key_values is None:
+                feature_dict.scene_feature_proj = self.get_model().mm_projector(
+                    feature_dict.scene_feature
+                )
+                new_input_embeds, new_labels = self._insert_feature(
+                    new_input_embeds,
+                    new_labels,
+                    feature_dict.scene_feature_proj,
+                    feature_dict.scene_insert_loc,
+                    feature_dict.scene_length,
+                )
+            return (
+                None,
+                attention_mask,
+                past_key_values,
+                new_input_embeds,
+                new_labels,
+                feature_dict,
+            )

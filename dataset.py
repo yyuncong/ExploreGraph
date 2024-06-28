@@ -134,6 +134,7 @@ class ExploreDataset(Dataset):
         self.prefiltering = prefiltering
         self.num_egocentric_views = num_egocentric_views
         self.top_k_categories = top_k_categories
+
         # self.frontier_token = frontier_token
         # self.frontier_token_id = self.tokenizer.convert_tokens_to_ids(self.frontier_token)
         # self.select_token = select_token
@@ -356,6 +357,7 @@ class ExploreDataset(Dataset):
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         # print("full ranking:", ranking)
+        
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
@@ -511,6 +513,10 @@ class ExploreDataset(Dataset):
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
             # return self.__getitem__(random_idx)
+
+        # if self.max_length > len(text):
+        #     index = np.random.choice(self.indices)
+        #     return self.__getitem__(index)
 
         step["scene_feature"] = scene_feature
         # remove scene graph id --- remove this if we need to keep id
