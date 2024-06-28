@@ -86,7 +86,9 @@ def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
     llava_model = llava_model.train()
     pbar = tqdm(dataloader, disable=(args.rank != 0))
-    total_loss = 0
+    total_combined_loss = 0
+    total_filter_loss = 0
+    total_selection_loss = 0
     total_sample = 0
     for sample in pbar:
         feature_dict = EasyDict(
@@ -98,9 +100,6 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         attention_mask = sample.attention_mask.to("cuda")
         labels = input_ids.clone()
         answer_indices = torch.where(labels == 22550)[1]
-
-        # print(input_ids.shape)
-        # input()
 
         for j, answer_idx in enumerate(answer_indices):
             labels[j, : answer_idx + 2] = -100
@@ -117,41 +116,51 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                 output_hidden_states=True,
             )
 
-        loss = outputs.loss
-        loss.backward()
+        selection_loss = outputs.loss
+        combined_loss = selection_loss
+        if args.prefiltering:
+            filter_input_ids = sample.filter_input_ids.to("cuda")
+            filter_attention_mask = sample.filter_attention_mask.to("cuda")
+            filter_labels = filter_input_ids.clone()
+            # choose the first answer as the separator
+            filter_answer_indices = torch.where(filter_labels == 22550)[1]
+            for j, answer_idx in enumerate(filter_answer_indices):
+                filter_labels[j, : answer_idx + 2] = -100
+            filter_labels[filter_labels == tokenizer.pad_token_id] = -100
+            with torch.autocast(device_type="cuda"):
+                filter_outputs = llava_model(
+                    input_ids=filter_input_ids,
+                    attention_mask=filter_attention_mask,
+                    labels=filter_labels,
+                    feature_dict=None,
+                    output_hidden_states=True,
+                )
+            filter_loss = filter_outputs.loss
+            combined_loss += filter_loss
+        combined_loss.backward()
         optimizer.step()
-        total_loss += loss.item()
+        # total_combined_loss += combined_loss.item()
+        total_selection_loss += selection_loss.item()
         total_sample += input_ids.shape[0]
-        pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
-        # pbar.set_description(f"loss: {loss.item():.3f}")
+        if args.prefiltering:
+            total_filter_loss += filter_loss.item()
+            pbar.set_description(
+                f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+            )
+        else:
+            pbar.set_description(f"loss: {total_selection_loss / total_sample:.3f}")
 
 
 def eval(dataloader, model, tokenizer, args):
     model.eval()
-    total = 0
-    total_options = 0
-    correct = 0
-    total_loss = 0
+    total_combined_loss = 0
+    total_selection_loss = 0
+    total_filter_loss = 0
     total_sample = 0
     pbar = tqdm(dataloader, disable=(args.rank != 0))
     # pbar = tqdm(dataloader)
     with torch.no_grad():
         for sample in pbar:
-            # input_ids = sample.input_ids
-            # answer_ind = torch.where(sample.input_ids==22550)[1][0].item()
-            # answer_ids = input_ids[:, answer_ind+2:answer_ind+6]
-            # input_ids = input_ids[:, :answer_ind+2]
-            # feature_dict = EasyDict(
-            #     scene_feature = sample.scene_feature.to("cuda"),
-            #     scene_insert_loc = sample.scene_insert_loc,
-            #     scene_length = sample.scene_length,
-            # )
-            # input_ids = input_ids.to("cuda")
-            # # dummy feed
-            # _ = model(input_ids,attention_mask = sample.attention_mask[:,:answer_ind+2].to("cuda"),
-            #           labels = input_ids.clone(),
-            #           feature_dict = feature_dict)
-
             feature_dict = EasyDict(
                 scene_feature=sample.scene_feature.to("cuda"),
                 scene_insert_loc=sample.scene_insert_loc,
@@ -174,29 +183,45 @@ def eval(dataloader, model, tokenizer, args):
                     feature_dict=feature_dict,
                     output_hidden_states=True,
                 )
+            selection_loss = outputs.loss
+            combined_loss = selection_loss
+            if args.prefiltering:
+                filter_input_ids = sample.filter_input_ids.to("cuda")
+                filter_attention_mask = sample.filter_attention_mask.to("cuda")
+                filter_labels = filter_input_ids.clone()
+                filter_answer_indices = torch.where(filter_labels == 22550)[1]
+                for j, answer_idx in enumerate(filter_answer_indices):
+                    filter_labels[j, : answer_idx + 2] = -100
+                filter_labels[filter_labels == tokenizer.pad_token_id] = -100
 
-            loss = outputs.loss
-            total_loss += loss.item()
+                with torch.autocast(device_type="cuda"):
+                    filter_outputs = model(
+                        input_ids=filter_input_ids,
+                        attention_mask=filter_attention_mask,
+                        labels=filter_labels,
+                        feature_dict=None,
+                        output_hidden_states=True,
+                    )
+                filter_loss = filter_outputs.loss
+                combined_loss += filter_loss
+            # total_combined_loss += combined_loss.item()
+            total_selection_loss += selection_loss.item()
             total_sample += input_ids.shape[0]
-            pbar.set_description(f"loss: {total_loss / total_sample:.3f}")
-            # with torch.inference_mode() and torch.autocast(device_type="cuda"):
-            #     output_ids = model.generate(
-            #         input_ids,
-            #         feature_dict=feature_dict,
-            #         do_sample=False,
-            #         max_new_tokens=10,
-            #     )
-            # outputs = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).replace("</s>", "").strip()
-            # gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            # total += 1
-            # if gt.lower().strip() == outputs.lower().strip():
-            #     correct += 1
-
-            # pbar.set_description(f"acc: {correct / total}")
+            if args.prefiltering:
+                total_filter_loss += filter_loss.item()
+                pbar.set_description(
+                    f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+                )
+            else:
+                pbar.set_description(f"loss: {total_selection_loss / total_sample:.3f}")
 
     if args.rank == 0:
-        # print("accuracy:", correct / total)
-        print("loss:", total_loss / total_sample)
+        if args.prefiltering:
+            print(
+                f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+            )
+        else:
+            print(f"loss: {total_selection_loss / total_sample:.3f}")
 
 
 def main():
@@ -249,6 +274,8 @@ def main():
         action="store_true",
         default=False,
     )
+    parser.add_argument("--prefiltering", action="store_true", default=False)
+    parser.add_argument("--top_k_categories", type=int, default=5)
     args = parser.parse_args()
 
     # local rank: the rank within the node
@@ -294,6 +321,8 @@ def main():
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
         action_memory=args.action_memory,
+        prefiltering=args.prefiltering,
+        top_k_categories=args.top_k_categories,
         tokenizer=tokenizer,
         max_length=2048,
     )
@@ -302,6 +331,8 @@ def main():
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
         action_memory=args.action_memory,
+        prefiltering=args.prefiltering,
+        top_k_categories=args.top_k_categories,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -323,7 +354,7 @@ def main():
         train_dataset,
         batch_size=args.batch_size,
         pin_memory=True,
-        num_workers=1,
+        num_workers=8,
         sampler=sampler,
         collate_fn=train_total_dataset.collate_wrapper,
     )
@@ -372,6 +403,9 @@ def main():
     # start training
 
     saving_folder = f"{args.folder}_{args.lr}"
+    if args.prefiltering:
+        saving_folder += "_filter"
+        saving_folder += f"_top{args.top_k_categories}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:
@@ -381,13 +415,13 @@ def main():
         if args.rank == 0:
             print("Start training epoch %d" % epoch)
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
-        # save checkpoint
-        # try:
-        #     if epoch % args.save_interval == 0:
-        #         save_checkpoint(model, saving_folder, epoch, args)
-        # except:
-        #     pass
-        # eval(val_dataloader, model, tokenizer, args)
+        # # save checkpoint
+        try:
+            if epoch % args.save_interval == 0:
+                save_checkpoint(model, saving_folder, epoch, args)
+        except:
+            pass
+        eval(val_dataloader, model, tokenizer, args)
 
 
 if __name__ == "__main__":
