@@ -343,12 +343,12 @@ def main():
         print("Start training epoch %d" % epoch)
 
         # Jiachen TODO: update train_one_epoch for your feature
-        #train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
         print("evaluating")
         # Jiachen TODO: update eval for your feature
-        eval(val_dataloader, model, tokenizer, args)
+        #eval(val_dataloader, model, tokenizer, args)
 
 
 if __name__ == "__main__":
