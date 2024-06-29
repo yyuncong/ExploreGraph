@@ -2,9 +2,9 @@
 #SBATCH --job-name=train-fsdp
 #SBATCH --output=log/fsdp-dcs-%j.txt
 #SBATCH --error=log/fsdp-dcs-%j.err
-#SBATCH --time=00:15:00
+#SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=2
+#SBATCH --nodes=16
 # activate the environment
 #source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 # source ~/.bashrc_dcs
@@ -62,9 +62,10 @@ echo $CMD
 srun $CMD \
 fsdp_train_random_switch.py \
 --folder ckpts/merged_17 \
+--random_permute \
 --prefiltering \
---top_k_categories=5 \
---egocentric_views \
+--filter_coeff=0.3 \
+--top_k_categories=10 \
 --lr=1e-7 \
 --num_epochs=10 \
 --batch_size=1 \

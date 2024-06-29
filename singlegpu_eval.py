@@ -300,6 +300,13 @@ def main():
     )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
+    parser.add_argument("--lr", default=1e-6, type=float)
+    parser.add_argument(
+        "--random_permute",
+        action="store_true",
+        help="if set true, randomly permute object/frontiers/pre-filtering classes",
+        default=False,
+    )
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -364,7 +371,12 @@ def main():
     # model.requires_grad_(True)
     del model.model.vision_tower
 
-    saving_folder = args.folder
+    saving_folder = f"{args.folder}_{args.lr}"
+    if args.random_permute:
+        saving_folder += "_rand"
+    if args.prefiltering:
+        saving_folder += "_filter"
+        saving_folder += f"_top{args.top_k_categories}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:
