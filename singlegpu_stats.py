@@ -388,6 +388,7 @@ def main():
     # print("too many objects num (pre)", val_total_dataset.num_too_many_objects)
     print("object not found num: ", len(val_total_dataset.obj_not_found_indices))
     print("too many objects num: ", len(val_total_dataset.too_many_objects_indices))
+    print("object filtered num: ", len(val_total_dataset.answer_obj_filtered_indices))
 
 
 if __name__ == "__main__":

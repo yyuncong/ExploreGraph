@@ -335,6 +335,8 @@ def main():
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
         action_memory=args.action_memory,
+        prefiltering=args.prefiltering,
+        top_k_categories=args.top_k_categories,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",

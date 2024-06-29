@@ -198,44 +198,36 @@ def eval(dataloader, model, tokenizer, args):
                     output_hidden_states=True,
                 )
             selection_loss = outputs.loss
-            combined_loss = selection_loss
-            if args.prefiltering:
-                filter_input_ids = sample.filter_input_ids.to("cuda")
-                filter_attention_mask = sample.filter_attention_mask.to("cuda")
-                filter_labels = filter_input_ids.clone()
-                filter_answer_indices = torch.where(filter_labels == 22550)[1]
-                for j, answer_idx in enumerate(filter_answer_indices):
-                    filter_labels[j, : answer_idx + 2] = -100
-                filter_labels[filter_labels == tokenizer.pad_token_id] = -100
+            
+            filter_input_ids = sample.filter_input_ids.to("cuda")
+            filter_attention_mask = sample.filter_attention_mask.to("cuda")
+            filter_labels = filter_input_ids.clone()
+            filter_answer_indices = torch.where(filter_labels == 22550)[1]
+            for j, answer_idx in enumerate(filter_answer_indices):
+                filter_labels[j, : answer_idx + 2] = -100
+            filter_labels[filter_labels == tokenizer.pad_token_id] = -100
 
-                with torch.autocast(device_type="cuda"):
-                    filter_outputs = model(
-                        input_ids=filter_input_ids,
-                        attention_mask=filter_attention_mask,
-                        labels=filter_labels,
-                        feature_dict=None,
-                        output_hidden_states=True,
-                    )
-                filter_loss = filter_outputs.loss
-                combined_loss += filter_loss
+            with torch.autocast(device_type="cuda"):
+                filter_outputs = model(
+                    input_ids=filter_input_ids,
+                    attention_mask=filter_attention_mask,
+                    labels=filter_labels,
+                    feature_dict=None,
+                    output_hidden_states=True,
+                )
+            filter_loss = filter_outputs.loss
             # total_combined_loss += combined_loss.item()
             total_selection_loss += selection_loss.item()
+            total_filter_loss += filter_loss.item()
             total_sample += input_ids.shape[0]
-            if args.prefiltering:
-                total_filter_loss += filter_loss.item()
-                pbar.set_description(
-                    f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
-                )
-            else:
-                pbar.set_description(f"loss: {total_selection_loss / total_sample:.3f}")
-
-    if args.rank == 0:
-        if args.prefiltering:
-            print(
+            pbar.set_description(
                 f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
             )
-        else:
-            print(f"loss: {total_selection_loss / total_sample:.3f}")
+
+    if args.rank == 0:
+        print(
+            f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+        )
 
 
 def main():
