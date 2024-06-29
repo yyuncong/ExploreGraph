@@ -528,6 +528,7 @@ class ExploreDataset(Dataset):
         if frontier_text is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
+        text += frontier_text
         # add frontier features
         multi_src_features.append(frontier_features)
         #print("prediction before reformat", prediction)
