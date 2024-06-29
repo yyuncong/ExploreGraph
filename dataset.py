@@ -63,7 +63,7 @@ def prepare_action_memory(memory_path):
 
 
 def prepare_frontier(feature_path, frontier_info):
-    #print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
+    # print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
     try:
         text = f"Below are all the frontiers that we can explore:\n"
         if len(frontier_info) > 0:
@@ -379,7 +379,7 @@ class ExploreDataset(Dataset):
         except:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        shuffle = self.random_permute and (self.split == 'train')
+        shuffle = self.random_permute and (self.split == "train")
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         # collections of features from egocentric view/action memory/scene graph/frontiers
@@ -392,9 +392,13 @@ class ExploreDataset(Dataset):
         text = f"Question: {episode['question']}\n"
 
         if self.egocentric_views:
-            egocentric_text, egocentric_features = prepare_egocentric_view(
-                step["egocentric_features"]
-            )
+            try:
+                egocentric_text, egocentric_features = prepare_egocentric_view(
+                    step["egocentric_features"]
+                )
+            except:
+                index = np.random.choice(self.indices)
+                return self.__getitem__(index)
             text += egocentric_text
             multi_src_features.append(egocentric_features)
 
@@ -467,15 +471,15 @@ class ExploreDataset(Dataset):
             # shuffle the index if random_permute is True otherwise keep the original order
             random_object_index = list(range(object_index))
             np.random.shuffle(random_object_index)
-            #print(object_index)
-            #print('random_object_index', random_object_index)
-            #print('indices before shuffle', keep_indices)
-            #print('classes before shuffle', object_classes)
+            # print(object_index)
+            # print('random_object_index', random_object_index)
+            # print('indices before shuffle', keep_indices)
+            # print('classes before shuffle', object_classes)
             keep_indices = [keep_indices[r_idx] for r_idx in random_object_index]
             object_classes = [object_classes[r_idx] for r_idx in random_object_index]
             object_features = [object_features[r_idx] for r_idx in random_object_index]
-            #print('indices after shuffle', keep_indices)
-            #print('classes after shuffle', object_classes)
+            # print('indices after shuffle', keep_indices)
+            # print('classes after shuffle', object_classes)
 
         text += "These are the objects already in our scene graph:\n"
         for i, class_name in enumerate(object_classes):
@@ -514,39 +518,34 @@ class ExploreDataset(Dataset):
             return self.__getitem__(index)
         """
         # shuffle frontier index
-        #print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
+        # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
         frontier_index = list(range(len(step["frontiers"])))
         # shuffle the index if random_permute is True otherwise keep the original order
         if shuffle:
             np.random.shuffle(frontier_index)
-        #print("random_frontier_index", frontier_index)
+        # print("random_frontier_index", frontier_index)
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
         )
-        #print('frontier_text', frontier_text)
+        # print('frontier_text', frontier_text)
         if frontier_text is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
         text += frontier_text
         # add frontier features
         multi_src_features.append(frontier_features)
-        #print("prediction before reformat", prediction)
+        # print("prediction before reformat", prediction)
         # prepare prediction and answer
         prediction = np.concatenate(
             (
                 prediction[keep_indices],
-                prediction[
-                    [
-                        idx + len(step["scene_graph"])
-                        for idx in frontier_index
-                    ]
-                ],
+                prediction[[idx + len(step["scene_graph"]) for idx in frontier_index]],
             )
         )
-        #print("reformatted prediction", prediction)
+        # print("reformatted prediction", prediction)
         prediction = torch.tensor(prediction)
-        #assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
+        # assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
         assert prediction.shape[0] == object_index + len(step["frontiers"])
         # GPT problem: prefiltering filter out the answer object
         if not np.where(prediction == 1.0)[0].shape[0] == 1:
@@ -567,7 +566,7 @@ class ExploreDataset(Dataset):
         if object_features is None and frontier_features is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        '''
+        """
         if object_features is not None and frontier_features is not None:
             scene_feature = torch.cat([object_features, frontier_features], dim=0)
         elif object_features is not None:
@@ -581,7 +580,7 @@ class ExploreDataset(Dataset):
 
         if self.action_memory and memory_feature is not None:
             scene_feature = torch.cat([memory_feature, scene_feature], dim=0)
-        '''
+        """
         # default order: egocentric views -> action memory -> objects -> frontiers
         multi_src_features = [f for f in multi_src_features if f is not None]
         scene_feature = torch.cat(multi_src_features, dim=0)
@@ -709,9 +708,9 @@ class ExploreDataset(Dataset):
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
         ]
-        #print("test episode", test_episode)
+        # print("test episode", test_episode)
         train_index, test_index = [], []
-        #print(self.episode2step)
+        # print(self.episode2step)
         for i in self.episode2step.keys():
             if i in test_episode:
                 test_index.extend(self.episode2step[i])

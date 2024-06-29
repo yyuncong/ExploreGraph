@@ -54,6 +54,7 @@ from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
 
+
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -151,7 +152,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                     feature_dict=None,
                     output_hidden_states=True,
                 )
-            filter_loss = filter_outputs.loss
+            filter_loss = filter_outputs.loss * args.filter_coeff
             combined_loss = filter_loss
             total_filter_loss += filter_loss.item()
             total_filter_sample += filter_input_ids.shape[0]
@@ -287,19 +288,20 @@ def main():
         action="store_true",
         default=False,
     )
-    parser.add_argument(  
+    parser.add_argument(
         "--random_permute",
         action="store_true",
-        help = "if set true, randomly permute object/frontiers/pre-filtering classes",
-        default = False, 
+        help="if set true, randomly permute object/frontiers/pre-filtering classes",
+        default=False,
     )
     parser.add_argument(
         "--seed",
-        type = int,
-        default = 0,
+        type=int,
+        default=0,
     )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
+    parser.add_argument("--filter_coeff", type=float, default=0.5)
     args = parser.parse_args()
 
     # local rank: the rank within the node
@@ -434,6 +436,7 @@ def main():
     if args.prefiltering:
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
+        saving_folder += f"_coeff{args.filter_coeff}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:
@@ -452,7 +455,7 @@ def main():
         try:
             eval(val_dataloader, model, tokenizer, args)
         except:
-            continue
+            pass
 
 
 if __name__ == "__main__":

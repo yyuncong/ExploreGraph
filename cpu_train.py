@@ -55,6 +55,7 @@ from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
 
+
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -288,16 +289,16 @@ def main():
         action="store_true",
         default=False,
     )
-    parser.add_argument(  
+    parser.add_argument(
         "--random_permute",
         action="store_true",
-        help = "if set true, randomly permute object/frontiers/pre-filtering classes",
-        default = False, 
+        help="if set true, randomly permute object/frontiers/pre-filtering classes",
+        default=False,
     )
     parser.add_argument(
         "--seed",
-        type = int,
-        default = 0,
+        type=int,
+        default=0,
     )
     # Jiachen
     # Jiachen TODO: Add parameters for your feature
@@ -387,11 +388,11 @@ def main():
         print("Start training epoch %d" % epoch)
 
         # Jiachen TODO: update train_one_epoch for your feature
-        dataset.split = 'train'
+        dataset.split = "train"
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
-        dataset.split = 'val'
+        dataset.split = "val"
         print("evaluating")
         # Jiachen TODO: update eval for your feature
         # eval(val_dataloader, model, tokenizer, args)

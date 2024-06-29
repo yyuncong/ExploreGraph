@@ -63,7 +63,7 @@ def prepare_action_memory(memory_path):
 
 
 def prepare_frontier(feature_path, frontier_info):
-    print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
+    print("frontier after shuffle", [info["rgb_id"] for info in frontier_info])
     try:
         text = f"Below are all the frontiers that we can explore:\n"
         if len(frontier_info) > 0:
@@ -257,7 +257,6 @@ class ExploreDataset(Dataset):
 
         return data
 
-
     def __len__(self):
         return len(self.data)
 
@@ -265,11 +264,10 @@ class ExploreDataset(Dataset):
         # Jiachen TODO
         # 1 format prefiltering prompt and answer
         # 1.1 load data and prepare the input for prefiltering: ranking/seen object categories
-        # 1.2 prepare 
+        # 1.2 prepare
         # 2 parse the generation result of model: which classes are chosen?
         # 3 format the selection prompt
         # 4 parse the selection result and evaluate the result
-
 
         # load a whole episode and each step within it
         step_path, episode_id = self.data[idx]
@@ -361,15 +359,15 @@ class ExploreDataset(Dataset):
         # Jiachen TODO: augment data by reindexing objects
         random_object_index = list(range(object_index))
         random.shuffle(random_object_index)
-        #print(object_index)
-        #print('random_object_index', random_object_index)
-        #print('indices before shuffle', keep_indices)
-        #print('classes before shuffle', object_classes)
+        # print(object_index)
+        # print('random_object_index', random_object_index)
+        # print('indices before shuffle', keep_indices)
+        # print('classes before shuffle', object_classes)
         keep_indices = [keep_indices[r_idx] for r_idx in random_object_index]
         object_classes = [object_classes[r_idx] for r_idx in random_object_index]
         object_features = [object_features[r_idx] for r_idx in random_object_index]
-        #print('indices after shuffle', keep_indices)
-        #print('classes after shuffle', object_classes)
+        # print('indices after shuffle', keep_indices)
+        # print('classes after shuffle', object_classes)
 
         text += "These are the objects already in our scene graph:\n"
         for i, class_name in enumerate(object_classes):
@@ -389,18 +387,18 @@ class ExploreDataset(Dataset):
         # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
         random_frontier_index = list(range(len(step["frontiers"])))
         random.shuffle(random_frontier_index)
-        #print("random_frontier_index", random_frontier_index)
+        # print("random_frontier_index", random_frontier_index)
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][r_idx] for r_idx in random_frontier_index],
         )
-        #print('frontier_text', frontier_text)
+        # print('frontier_text', frontier_text)
         if frontier_text is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
         # add frontier features
         multi_src_features.append(frontier_features)
-        #print("prediction before reformat", prediction)
+        # print("prediction before reformat", prediction)
         # prepare prediction and answer
         prediction = np.concatenate(
             (
@@ -413,9 +411,9 @@ class ExploreDataset(Dataset):
                 ],
             )
         )
-        #print("reformatted prediction", prediction)
+        # print("reformatted prediction", prediction)
         prediction = torch.tensor(prediction)
-        #assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
+        # assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
         assert prediction.shape[0] == object_index + len(step["frontiers"])
         # GPT problem: prefiltering filter out the answer object
         if not np.where(prediction == 1.0)[0].shape[0] == 1:
@@ -439,7 +437,7 @@ class ExploreDataset(Dataset):
         # default order: egocentric views -> action memory -> objects -> frontiers
         multi_src_features = [f for f in multi_src_features if f is not None]
         scene_feature = torch.cat(multi_src_features, dim=0)
-              
+
         if len(scene_feature) > 120:
             # take a random integer index
             # random_idx = np.random.randint(0, len(self.data))
@@ -558,14 +556,12 @@ class ExploreDataset(Dataset):
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
         ]
-        #print("test episode", test_episode)
+        # print("test episode", test_episode)
         train_index, test_index = [], []
-        #print(self.episode2step)
+        # print(self.episode2step)
         for i in self.episode2step.keys():
             if i in test_episode:
                 test_index.extend(self.episode2step[i])
             else:
                 train_index.extend(self.episode2step[i])
         return train_index, test_index
-
-
