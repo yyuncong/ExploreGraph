@@ -298,6 +298,8 @@ def main():
         action="store_true",
         default=False,
     )
+    parser.add_argument("--prefiltering", action="store_true", default=False)
+    parser.add_argument("--top_k_categories", type=int, default=5)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -326,6 +328,8 @@ def main():
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
         action_memory=args.action_memory,
+        prefiltering=args.prefiltering,
+        top_k_categories=args.top_k_categories,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
