@@ -86,11 +86,13 @@ def prepare_frontier(feature_path, frontier_info):
 def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length, topk):
     filter_text = f"Question: {question}\n"
     filter_text += "These are the objects available in current scene graph\n"
+    # Jiachen TODO: augment data by introducing randomness
+    random.shuffle(classes)
     for class_name in classes:
         filter_text += f"{class_name} \n"
+    # only require selection when there are more than k objects
     if len(classes) == 0:
         filter_text += "No object available \n"
-    # only require selection when there are more than k objects
     # filter_text += f"Select the top {len(ranking)} important objects\n"
     filter_text += f"Rank at most top {topk} of them from high to low based on their importance on answering the question\n"
     # Jiachen TODO 5: format the filtering answer
@@ -126,7 +128,6 @@ class ExploreDataset(Dataset):
         egocentric_views=False,
         action_memory=False,
         prefiltering=False,
-        random_permute=False,
         # Jiachen TODO: add your parameter here
         top_k_categories=5,
         num_egocentric_views=5,
@@ -146,7 +147,6 @@ class ExploreDataset(Dataset):
         self.egocentric_views = egocentric_views
         self.action_memory = action_memory
         self.prefiltering = prefiltering
-        self.random_permute = random_permute
         self.num_egocentric_views = num_egocentric_views
         self.top_k_categories = top_k_categories
 
@@ -257,120 +257,25 @@ class ExploreDataset(Dataset):
 
         return data
 
-    # def load_data(self):
-
-    #     # Jiachen TODO: load your "question/scene to ranking json" here
-    #     with open(self.ranking_path, "r") as f:
-    #         self.candidate_rankings = json.load(f)
-    #     # load scene feature into dict
-    #     self.scenes = {}
-    #     for scene in os.listdir(self.scene_dir):
-    #         self.scenes[scene] = {}
-    #         scene_fold = os.path.join(self.scene_dir, scene)
-    #         # need to confirm: if object in different scene should have different features
-    #         for object_f in os.listdir(scene_fold):
-    #             object_id = object_f[:-3]
-    #             try:
-    #                 # object_feature  = torch.load(os.path.join(scene_fold, object_f),
-    #                 #                             map_location = 'cpu')
-    #                 # self.scenes[scene][object_id] = object_feature
-    #                 self.scenes[scene][object_id] = os.path.join(scene_fold, object_f)
-    #             except:
-    #                 continue
-
-    #     self.obj_json_map = {}
-    #     for obj_json in os.listdir(self.obj_bbox_dir):
-    #         scene_id = obj_json.split(".")[0]
-    #         self.obj_json_map[scene_id] = os.path.join(self.obj_bbox_dir, obj_json)
-
-    #     # load episode data: metadata is managed with self.episodes
-    #     # TODO later: Remove num skipped to improve error handling
-    #     self.episodes = []
-    #     data = []
-    #     num_skipped = 0
-    #     for i, episode in enumerate(os.listdir(self.explore_dir)):
-    #         i -= num_skipped
-    #         epi_path = os.path.join(self.explore_dir, episode)
-    #         # load metadata
-    #         try:
-    #             with open(os.path.join(epi_path, "metadata.json"), "r") as f:
-    #                 metadata = json.load(f)
-    #         except:
-    #             num_skipped += 1
-    #             continue
-    #         self.episodes.append(metadata)
-
-    #         # load step data
-    #         steps_data = []
-    #         for step in range(metadata["episode_length"]):
-    #             with open(os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")) as f:
-    #                 stepdata = json.load(f)
-    #             # link each step to its episode
-    #             stepdata["episode_id"] = i
-    #             stepdata["target_obj_class"] = metadata["target_obj_class"]
-
-    #             # add paths for frontiers
-    #             frontier_features = []
-    #             stepdata["frontier_features"] = {}
-    #             frontier_folder = os.path.join(epi_path, "frontier_rgb")
-    #             for frontier in stepdata["frontiers"]:
-    #                 # placeholder for loading frontier feature
-    #                 rgb_id = frontier["rgb_id"]
-    #                 # load frontier feature
-    #                 # feature = torch.load(os.path.join(frontier_folder, rgb_id.replace(".png", ".pt")),
-    #                 #                         map_location = 'cpu')
-    #                 feature = os.path.join(
-    #                     frontier_folder, rgb_id.replace(".png", ".pt")
-    #                 )
-    #                 # feature = torch.zeros(1024)
-    #                 stepdata["frontier_features"][rgb_id] = feature
-    #                 # front['rgb_id'] = os.path.join(epi_path,'frontier_rgb',front['rgb_id'])
-    #             # remove frontier info, can be removed in case other features needed
-    #             # del stepdata['frontiers']
-    #             if stepdata["previous_choice"] is not None:
-    #                 stepdata["previous_choice"] = os.path.join(
-    #                     frontier_folder,
-    #                     stepdata["previous_choice"].replace(".png", ".pt"),
-    #                 )
-
-    #             stepdata["egocentric_features"] = {}
-    #             for view_idx in range(self.num_egocentric_views):
-    #                 egocentric_view_folder = os.path.join(epi_path, f"egocentric")
-    #                 featrue = os.path.join(
-    #                     egocentric_view_folder, f"{i}_view_{view_idx}.pt"
-    #                 )
-    #                 stepdata["egocentric_features"][view_idx] = featrue
-    #             steps_data.append(stepdata)
-    #         data.extend(steps_data)
-
-    #     # link steps to episodes, which can be used for dataset split
-    #     self.episode2step = defaultdict(list)
-    #     for i in range(len(data)):
-    #         self.episode2step[data[i]["episode_id"]].append(i)
-    #     return data
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
+        # Jiachen TODO
+        # 1 format prefiltering prompt and answer
+        # 1.1 load data and prepare the input for prefiltering: ranking/seen object categories
+        # 1.2 prepare 
+        # 2 parse the generation result of model: which classes are chosen?
+        # 3 format the selection prompt
+        # 4 parse the selection result and evaluate the result
 
-        # Jiachen TODO: add your feature to get item
-        # which might include the following steps
-        # 1. load the full list of ranking
-        # 2. remove unseen object categories from the full list
-        # 3. Take top k object categories as specified by one of the parameter
-        # 4. Format the filtering question with the scene graph class names
-        # 5. Format the filtering answer with the filtered ranking list
-        # 6. Format the selection question with the filtered ranking list (Need further confirmation)
-        # 7. Output filter_input_ids/filter_attention_mask/filter_length for the filtering question as well
 
-        # try:
         # load a whole episode and each step within it
         step_path, episode_id = self.data[idx]
         step = self.load_step(step_path)
         episode = self.episodes[episode_id]
         scene = self.scenes[episode["scene"]]
-        shuffle = self.random_permute and (self.split == 'train')
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         # collections of features from egocentric view/action memory/scene graph/frontiers
@@ -454,19 +359,17 @@ class ExploreDataset(Dataset):
             # print("filtered indices:", keep_indices)
             # print("filtered categories:", object_classes)
         # Jiachen TODO: augment data by reindexing objects
-        if shuffle:
-            # shuffle the index if random_permute is True otherwise keep the original order
-            random_object_index = list(range(object_index))
-            np.random.shuffle(random_object_index)
-            #print(object_index)
-            #print('random_object_index', random_object_index)
-            #print('indices before shuffle', keep_indices)
-            #print('classes before shuffle', object_classes)
-            keep_indices = [keep_indices[r_idx] for r_idx in random_object_index]
-            object_classes = [object_classes[r_idx] for r_idx in random_object_index]
-            object_features = [object_features[r_idx] for r_idx in random_object_index]
-            #print('indices after shuffle', keep_indices)
-            #print('classes after shuffle', object_classes)
+        random_object_index = list(range(object_index))
+        random.shuffle(random_object_index)
+        #print(object_index)
+        #print('random_object_index', random_object_index)
+        #print('indices before shuffle', keep_indices)
+        #print('classes before shuffle', object_classes)
+        keep_indices = [keep_indices[r_idx] for r_idx in random_object_index]
+        object_classes = [object_classes[r_idx] for r_idx in random_object_index]
+        object_features = [object_features[r_idx] for r_idx in random_object_index]
+        #print('indices after shuffle', keep_indices)
+        #print('classes after shuffle', object_classes)
 
         text += "These are the objects already in our scene graph:\n"
         for i, class_name in enumerate(object_classes):
@@ -482,38 +385,14 @@ class ExploreDataset(Dataset):
             multi_src_features.append(object_features)
         text += "/\n"
 
-        """
-        try:
-            text += "Below are all the frontiers that we can explore:\n"
-            if len(step["frontiers"]) > 0:
-                frontier_features = []
-                for i, frontier in enumerate(step["frontiers"]):
-                    frontier_features.append(
-                        torch.load(
-                            step["frontier_features"][frontier["rgb_id"]],
-                            map_location="cpu",
-                        )
-                    )
-                    text += f"frontier {i} <scene> "
-                frontier_features = torch.cat(frontier_features, dim=0)
-            else:
-                text += f"No frontier available "
-                frontier_features = None
-            text += "/\n"
-        except:
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
-        """
         # shuffle frontier index
-        print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
-        frontier_index = list(range(len(step["frontiers"])))
-        # shuffle the index if random_permute is True otherwise keep the original order
-        if shuffle:
-            np.random.shuffle(frontier_index)
-        print("random_frontier_index", frontier_index)
+        # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
+        random_frontier_index = list(range(len(step["frontiers"])))
+        random.shuffle(random_frontier_index)
+        #print("random_frontier_index", random_frontier_index)
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
-            [step["frontiers"][idx] for idx in frontier_index],
+            [step["frontiers"][r_idx] for r_idx in random_frontier_index],
         )
         #print('frontier_text', frontier_text)
         if frontier_text is None:
@@ -528,8 +407,8 @@ class ExploreDataset(Dataset):
                 prediction[keep_indices],
                 prediction[
                     [
-                        idx + len(step["scene_graph"])
-                        for idx in frontier_index
+                        r_idx + len(step["scene_graph"])
+                        for r_idx in random_frontier_index
                     ]
                 ],
             )
@@ -557,21 +436,6 @@ class ExploreDataset(Dataset):
         if object_features is None and frontier_features is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        '''
-        if object_features is not None and frontier_features is not None:
-            scene_feature = torch.cat([object_features, frontier_features], dim=0)
-        elif object_features is not None:
-            scene_feature = object_features
-        else:
-            scene_feature = frontier_features
-        
-        # there is a bug if we use egocentric views and action memory at the same time
-        if self.egocentric_views:
-            scene_feature = torch.cat([egocentric_features, scene_feature], dim=0)
-
-        if self.action_memory and memory_feature is not None:
-            scene_feature = torch.cat([memory_feature, scene_feature], dim=0)
-        '''
         # default order: egocentric views -> action memory -> objects -> frontiers
         multi_src_features = [f for f in multi_src_features if f is not None]
         scene_feature = torch.cat(multi_src_features, dim=0)
@@ -625,9 +489,6 @@ class ExploreDataset(Dataset):
         )
         # add prompt input for prefiltering
         if self.prefiltering:
-            classes = list(class2object.keys())
-            if shuffle:
-                np.random.shuffle(classes)
             (
                 input_dict.filter_input_ids,
                 input_dict.filter_length,
@@ -635,7 +496,7 @@ class ExploreDataset(Dataset):
             ) = prepare_prefiltering_input(
                 episode["question"],
                 self.tokenizer,
-                classes,
+                list(class2object.keys()),
                 ranking,
                 self.max_length,
                 self.top_k_categories,
@@ -708,50 +569,3 @@ class ExploreDataset(Dataset):
         return train_index, test_index
 
 
-# if __name__ == "__main__":
-#     from transformers import AutoTokenizer
-#     from tqdm import tqdm
-
-#     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-
-#     additional_special_tokens = [SCENE_TOKEN]
-#     tokenizer.add_special_tokens(
-#         {"additional_special_tokens": additional_special_tokens}
-#     )
-#     dataset = ExploreDataset("../exploregraph_data", tokenizer, 2048)
-#     sampler = DistributedSampler(
-#         dataset, num_replicas=1, rank=0, shuffle=True, drop_last=False
-#     )
-#     dataloader = DataLoader(
-#         dataset,
-#         batch_size=4,
-#         pin_memory=True,
-#         num_workers=4,
-#         sampler=sampler,
-#         collate_fn=dataset.collate_wrapper,
-#     )
-
-#     for sample in tqdm(dataloader):
-#         print(sample)
-#         break
-
-# if __name__ == '__main__':
-#     # customize a tokenizer (Not sure how to add special tokens)
-#     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-#     tokenizer.add_special_tokens(
-#         {'additional_special_tokens':[
-#             SCENE_TOKEN,
-#             # FRONTIER_TOKEN,
-#             SELECT_TOKEN
-#         ]}
-#     )
-#     dataset = ExploreDataset('data',tokenizer,1024)
-
-#     # train test split
-#     train_index, test_index = dataset.split_index()
-#     train_dataset = Subset(dataset,train_index)
-#     test_dataset = Subset(dataset,test_index)
-
-#     train_loader = DataLoader(train_dataset, batch_size = 2, shuffle = True, collate_fn = dataset.collate_wrapper)
-#     batch = next(iter(train_loader))
-#     show_sample(batch)
