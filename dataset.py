@@ -62,10 +62,32 @@ def prepare_action_memory(memory_path):
     return text, memory_feature
 
 
+def prepare_frontier(feature_path, frontier_info):
+    print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
+    try:
+        text = f"Below are all the frontiers that we can explore:\n"
+        if len(frontier_info) > 0:
+            frontier_features = []
+            for i, info in enumerate(frontier_info):
+                frontier_features.append(
+                    torch.load(feature_path[info["rgb_id"]], map_location="cpu")
+                )
+                text += f"frontier {i} <scene> "
+            frontier_features = torch.cat(frontier_features, dim=0)
+        else:
+            text += f"No frontier available "
+            frontier_features = None
+        text += "/\n"
+        return text, frontier_features
+    except:
+        return None, None
+
+
 def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length, topk):
     filter_text = f"Question: {question}\n"
-    # filter_text += f"Select objects that can help answer the question \n"
     filter_text += "These are the objects available in current scene graph\n"
+    # Jiachen TODO: augment data by introducing randomness
+    random.shuffle(classes)
     for class_name in classes:
         filter_text += f"{class_name} \n"
     # only require selection when there are more than k objects
@@ -73,13 +95,6 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
         filter_text += "No object available \n"
     # filter_text += f"Select the top {len(ranking)} important objects\n"
     filter_text += f"Rank at most top {topk} of them from high to low based on their importance on answering the question\n"
-    # filter_text += (
-    #     "Reprint the name of objects in ranked order. Each object one line \n"
-    # )
-    # filter_text += (
-    #     "If currently no object available, just type 'No object available' \n"
-    # )
-
     # Jiachen TODO 5: format the filtering answer
     answer = "\n".join(ranking[:topk]) if len(classes) > 0 else "No object available"
     filter_text += "Answer: "
@@ -237,6 +252,7 @@ class ExploreDataset(Dataset):
                 stepdata_path = os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")
                 steps_data.append((stepdata_path, i))
                 self.episode2step[i].append(data_count)
+                data_count += 1
             data.extend(steps_data)
 
         return data
@@ -356,7 +372,8 @@ class ExploreDataset(Dataset):
         scene = self.scenes[episode["scene"]]
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
-        # print("full ranking:", ranking)
+        # collections of features from egocentric view/action memory/scene graph/frontiers
+        multi_src_features = []
 
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
@@ -369,12 +386,14 @@ class ExploreDataset(Dataset):
                 step["egocentric_features"]
             )
             text += egocentric_text
+            multi_src_features.append(egocentric_features)
 
         text += f"Select the frontier/object that would help finding the answer of the question.\n"
 
         if self.action_memory:
             memory_text, memory_feature = prepare_action_memory(step["previous_choice"])
             text += memory_text
+            multi_src_features.append(memory_feature)
 
         # replace scene graph in each steps with scene feature
         # Jiachen TODO 2: extract seen object categories at the same time
@@ -427,9 +446,24 @@ class ExploreDataset(Dataset):
                 for cls in ranking
                 for obj_idx in class2object[cls]
             ]
+            # Note that if apply prefiltering, we may have #(objects) < object_index
+            # 4. reassign object_index = #(object)
+            object_index = len(keep_indices)
 
             # print("filtered indices:", keep_indices)
             # print("filtered categories:", object_classes)
+        # Jiachen TODO: augment data by reindexing objects
+        random_object_index = list(range(object_index))
+        random.shuffle(random_object_index)
+        #print(object_index)
+        #print('random_object_index', random_object_index)
+        #print('indices before shuffle', keep_indices)
+        #print('classes before shuffle', object_classes)
+        keep_indices = [keep_indices[r_idx] for r_idx in random_object_index]
+        object_classes = [object_classes[r_idx] for r_idx in random_object_index]
+        object_features = [object_features[r_idx] for r_idx in random_object_index]
+        #print('indices after shuffle', keep_indices)
+        #print('classes after shuffle', object_classes)
 
         text += "These are the objects already in our scene graph:\n"
         for i, class_name in enumerate(object_classes):
@@ -437,33 +471,15 @@ class ExploreDataset(Dataset):
 
         if object_index == 0:
             text += f"No object available "
-        text += "/\n"
-
-        prediction = np.concatenate(
-            (prediction[keep_indices], prediction[len(step["scene_graph"]) :])
-        )
-        prediction = torch.tensor(prediction)
-        assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
-        # GPT problem: prefiltering filter out the answer object
-        if not np.where(prediction == 1.0)[0].shape[0] == 1:
-            self.answer_obj_filtered_indices.add(idx)
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
-
-        prediction_index = np.where(prediction == 1.0)[0][0]
-        if prediction_index < len(object_features):
-            answer = f"object {prediction_index}"
-        else:
-            answer = f"frontier {prediction_index - len(object_features)}"
-
-        # object_features = [scene[str(sid)] for sid in step["scene_graph"]
-        #                     if str(sid) in scene.keys()]
-        if len(object_features) == 0:
             # construct zero scene feature if all objects are missed
             object_features = None
         else:
             object_features = torch.stack(object_features, dim=0)
+            # add object features
+            multi_src_features.append(object_features)
+        text += "/\n"
 
+        """
         try:
             text += "Below are all the frontiers that we can explore:\n"
             if len(step["frontiers"]) > 0:
@@ -484,6 +500,50 @@ class ExploreDataset(Dataset):
         except:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
+        """
+        # shuffle frontier index
+        # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
+        random_frontier_index = list(range(len(step["frontiers"])))
+        random.shuffle(random_frontier_index)
+        #print("random_frontier_index", random_frontier_index)
+        frontier_text, frontier_features = prepare_frontier(
+            step["frontier_features"],
+            [step["frontiers"][r_idx] for r_idx in random_frontier_index],
+        )
+        #print('frontier_text', frontier_text)
+        if frontier_text is None:
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+        # add frontier features
+        multi_src_features.append(frontier_features)
+        #print("prediction before reformat", prediction)
+        # prepare prediction and answer
+        prediction = np.concatenate(
+            (
+                prediction[keep_indices],
+                prediction[
+                    [
+                        r_idx + len(step["scene_graph"])
+                        for r_idx in random_frontier_index
+                    ]
+                ],
+            )
+        )
+        #print("reformatted prediction", prediction)
+        prediction = torch.tensor(prediction)
+        #assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
+        assert prediction.shape[0] == object_index + len(step["frontiers"])
+        # GPT problem: prefiltering filter out the answer object
+        if not np.where(prediction == 1.0)[0].shape[0] == 1:
+            self.answer_obj_filtered_indices.add(idx)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+
+        prediction_index = np.where(prediction == 1.0)[0][0]
+        if prediction_index < object_index:
+            answer = f"object {prediction_index}"
+        else:
+            answer = f"frontier {prediction_index - object_index}"
 
         text += "Answer: "
         text += answer + self.tokenizer.eos_token
@@ -492,20 +552,25 @@ class ExploreDataset(Dataset):
         if object_features is None and frontier_features is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-
+        '''
         if object_features is not None and frontier_features is not None:
             scene_feature = torch.cat([object_features, frontier_features], dim=0)
         elif object_features is not None:
             scene_feature = object_features
         else:
             scene_feature = frontier_features
-
+        
+        # there is a bug if we use egocentric views and action memory at the same time
         if self.egocentric_views:
             scene_feature = torch.cat([egocentric_features, scene_feature], dim=0)
 
         if self.action_memory and memory_feature is not None:
             scene_feature = torch.cat([memory_feature, scene_feature], dim=0)
-
+        '''
+        # default order: egocentric views -> action memory -> objects -> frontiers
+        multi_src_features = [f for f in multi_src_features if f is not None]
+        scene_feature = torch.cat(multi_src_features, dim=0)
+              
         if len(scene_feature) > 120:
             # take a random integer index
             # random_idx = np.random.randint(0, len(self.data))
@@ -562,7 +627,7 @@ class ExploreDataset(Dataset):
             ) = prepare_prefiltering_input(
                 episode["question"],
                 self.tokenizer,
-                class2object.keys(),
+                list(class2object.keys()),
                 ranking,
                 self.max_length,
                 self.top_k_categories,
@@ -624,7 +689,9 @@ class ExploreDataset(Dataset):
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
         ]
+        #print("test episode", test_episode)
         train_index, test_index = [], []
+        #print(self.episode2step)
         for i in self.episode2step.keys():
             if i in test_episode:
                 test_index.extend(self.episode2step[i])

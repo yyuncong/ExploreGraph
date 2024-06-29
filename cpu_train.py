@@ -323,6 +323,8 @@ def main():
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
     train_dataset = Subset(dataset, train_index)
+    #print(train_index)
+    #exit(0)
     val_dataset = Subset(dataset, test_index)
     dataloader = DataLoader(
         train_dataset,
