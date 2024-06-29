@@ -288,6 +288,8 @@ def main():
         action="store_true",
         default=False,
     )
+    parser.add_argument("--prefiltering", action="store_true", default=False)
+    parser.add_argument("--top_k_categories", type=int, default=5)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -316,6 +318,8 @@ def main():
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
         action_memory=args.action_memory,
+        prefiltering=args.prefiltering,
+        top_k_categories=args.top_k_categories,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -347,7 +351,7 @@ def main():
 
     dataloader = DataLoader(
         val_total_dataset,
-        batch_size=1024,
+        batch_size=4096,
         pin_memory=True,
         num_workers=0,
         collate_fn=val_total_dataset.collate_wrapper,
@@ -381,7 +385,7 @@ def main():
     # start training
     eval(dataloader, model, tokenizer, args)
 
-    print("too many objects num (pre)", val_total_dataset.num_too_many_objects)
+    # print("too many objects num (pre)", val_total_dataset.num_too_many_objects)
     print("object not found num: ", len(val_total_dataset.obj_not_found_indices))
     print("too many objects num: ", len(val_total_dataset.too_many_objects_indices))
 

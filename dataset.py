@@ -133,7 +133,8 @@ class ExploreDataset(Dataset):
         split="train",
     ):
         # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
-        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_flexible")
+        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged")
+        print(self.scene_dir)
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         # exploration_path = (
         #     "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
@@ -367,9 +368,17 @@ class ExploreDataset(Dataset):
         # try:
         # load a whole episode and each step within it
         step_path, episode_id = self.data[idx]
-        step = self.load_step(step_path)
+        try:
+            step = self.load_step(step_path)
+        except:
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
         episode = self.episodes[episode_id]
-        scene = self.scenes[episode["scene"]]
+        try:
+            scene = self.scenes[episode["scene"]]
+        except:
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
         shuffle = self.random_permute and (self.split == 'train')
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
@@ -575,8 +584,8 @@ class ExploreDataset(Dataset):
         # default order: egocentric views -> action memory -> objects -> frontiers
         multi_src_features = [f for f in multi_src_features if f is not None]
         scene_feature = torch.cat(multi_src_features, dim=0)
-              
-        if len(scene_feature) > 120:
+
+        if len(scene_feature) > 50:
             # take a random integer index
             # random_idx = np.random.randint(0, len(self.data))
             self.too_many_objects_indices.add(idx)
@@ -584,16 +593,18 @@ class ExploreDataset(Dataset):
             return self.__getitem__(index)
             # return self.__getitem__(random_idx)
 
-        # if self.max_length > len(text):
-        #     index = np.random.choice(self.indices)
-        #     return self.__getitem__(index)
-
         step["scene_feature"] = scene_feature
         # remove scene graph id --- remove this if we need to keep id
 
         # make sure all things are included
         # print("selection prompt", len(text))
         # print(text)
+        if self.max_length <= len(text):
+            # print(text)
+            self.too_many_objects_indices.add(idx)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+
         assert self.max_length > len(text)
         assert self.max_length > len(
             scene_feature

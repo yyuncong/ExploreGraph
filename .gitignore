@@ -8,8 +8,9 @@ __pycache__/
 
 # Distribution / packaging
 llava/
-ckpt/
+ckpts/
 log/
+eval_log/
 .Python
 build/
 develop-eggs/

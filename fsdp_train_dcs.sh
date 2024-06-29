@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=test-fsdp-new
+#SBATCH --job-name=train-fsdp
 #SBATCH --output=log/fsdp-dcs-%j.txt
 #SBATCH --error=log/fsdp-dcs-%j.err
-#SBATCH --time=01:00:00
+#SBATCH --time=00:15:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=4
+#SBATCH --nodes=2
 # activate the environment
 #source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 # source ~/.bashrc_dcs
@@ -12,6 +12,7 @@
 
 
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
+echo "SLURM_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK"
 
 RANDOM=$$
 DIV=1000
@@ -27,6 +28,8 @@ echo "MASTER_ADDR="$MASTER_ADDR
 
 # set environment variable 
 export OMP_NUM_THREADS=1
+# export SLURM_TRES_PER_TASK=cpu:16
+# export SLURM_CPUS_PER_TASK=32
 export TOKENIZERS_PARALLELISM=true
 export NCCL_DEBUG=WARN
 NODE_RANK=${SLURM_PROCID}
@@ -57,10 +60,12 @@ fi
 echo $CMD
 
 srun $CMD \
-fsdp_train.py \
---folder ckpts/all_57 \
---lr=5e-7 \
+fsdp_train_random_switch.py \
+--folder ckpts/merged_17 \
+--prefiltering \
+--top_k_categories=5 \
 --egocentric_views \
+--lr=1e-7 \
 --num_epochs=10 \
 --batch_size=1 \
 --save_interval=1
