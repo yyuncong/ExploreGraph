@@ -63,7 +63,7 @@ def prepare_action_memory(memory_path):
 
 
 def prepare_frontier(feature_path, frontier_info):
-    print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
+    #print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
     try:
         text = f"Below are all the frontiers that we can explore:\n"
         if len(frontier_info) > 0:
@@ -505,12 +505,12 @@ class ExploreDataset(Dataset):
             return self.__getitem__(index)
         """
         # shuffle frontier index
-        print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
+        #print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
         frontier_index = list(range(len(step["frontiers"])))
         # shuffle the index if random_permute is True otherwise keep the original order
         if shuffle:
             np.random.shuffle(frontier_index)
-        print("random_frontier_index", frontier_index)
+        #print("random_frontier_index", frontier_index)
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
