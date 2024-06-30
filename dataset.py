@@ -707,6 +707,7 @@ class ExploreDataset(Dataset):
             i
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
+            and int(self.episodes[i]["scene"].split("-")[0]) < 800
         ]
         # print("test episode", test_episode)
         train_index, test_index = [], []

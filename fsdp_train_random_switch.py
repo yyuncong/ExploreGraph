@@ -198,7 +198,7 @@ def eval(dataloader, model, tokenizer, args):
                     output_hidden_states=True,
                 )
             selection_loss = outputs.loss
-            
+
             filter_input_ids = sample.filter_input_ids.to("cuda")
             filter_attention_mask = sample.filter_attention_mask.to("cuda")
             filter_labels = filter_input_ids.clone()
