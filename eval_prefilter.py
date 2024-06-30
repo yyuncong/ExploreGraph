@@ -175,6 +175,7 @@ def eval(dataloader, model, tokenizer, args):
     total_options = 0
     correct = 0
     total_filter_loss = 0
+    total_selection_loss = 0
     total_sample = 0
     pbar = tqdm(dataloader)
     # pbar = tqdm(dataloader)
@@ -211,7 +212,8 @@ def eval(dataloader, model, tokenizer, args):
                     input_ids,
                     feature_dict=None,
                     do_sample=False,
-                    max_new_tokens=10,
+                    # allow for some long classes
+                    max_new_tokens=30,
                 )
             outputs = (
                 tokenizer.decode(output_ids[0, input_ids.shape[1] :])
@@ -232,9 +234,67 @@ def eval(dataloader, model, tokenizer, args):
                 ranking_match_correct += len(outputs&answer)
             
             # construct selection prompt and get the answer
+            selection_dict = sample.selection_dict[0]
+            selection_sample = construct_selection_prompt(
+                tokenizer,
+                selection_dict.scene_token_id,
+                selection_dict.text_before_object,
+                selection_dict.feature_before_object,
+                selection_dict.frontier_text,
+                selection_dict.frontier_features,
+                selection_dict.frontier_prediction,
+                selection_dict.object_info_dict,
+                True,
+                answer,
+                args.top_k_categories
+            )
+            if isinstance(selection_sample, str):
+                # Three different types of string indicating different problems
+                continue
             
+            feature_dict = EasyDict(
+                scene_feature=selection_sample.scene_feature.to("cuda"),
+                scene_insert_loc=selection_sample.scene_insert_loc,
+                scene_length=selection_sample.scene_length,
+            )
+            input_ids = selection_sample.input_ids.to("cuda")
+            attention_mask = selection_sample.attention_mask.to("cuda")
+            labels = input_ids.clone()
+            answer_indices = torch.where(labels == 22550)[1]
             
-            '''
+            for j, answer_idx in enumerate(answer_indices):
+                labels[j, : answer_idx + 2] = -100
+            labels[labels == tokenizer.pad_token_id] = -100
+            with torch.autocast(device_type="cuda"):
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=None,
+                    feature_dict=feature_dict,
+                    output_hidden_states=True,
+                )
+            selection_loss = outputs.loss
+            total_selection_loss += selection_loss.item()
+            
+            input_ids = selection_sample.input_ids.to("cuda")
+            answer_ind = torch.where(selection_sample.input_ids == 22550)[1][0].item()
+            answer_ids = input_ids[:, answer_ind + 2 : answer_ind + 6]
+            input_ids = input_ids[:, : answer_ind + 2]
+            
+            with torch.inference_mode() and torch.autocast(device_type="cuda"):
+                output_ids = model.generate(
+                    input_ids,
+                    feature_dict=feature_dict,
+                    do_sample=False,
+                    max_new_tokens=10,
+                )
+            outputs = ( 
+                tokenizer.decode(output_ids[0, input_ids.shape[1] :])
+                .replace("</s>", "")
+                .strip()
+            )
+            gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
+            
             gt_type = gt.split(" ")[0]
             gt_id = gt.split(" ")[1]
             outputs_type = outputs.split(" ")[0]
@@ -255,7 +315,7 @@ def eval(dataloader, model, tokenizer, args):
             total += 1
             if gt.lower().strip() == outputs.lower().strip():
                 correct += 1
-            '''
+            
             pbar.set_description(f"acc: {correct / total}")
 
     print("accuracy:", correct / total)
