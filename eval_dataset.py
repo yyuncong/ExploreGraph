@@ -697,6 +697,7 @@ class ExploreDataset(Dataset):
             filter_attention_mask=torch.cat(
                 [b.filter_attention_mask for b in batch]
             )[..., :max_filter_length],
+            filter_length=torch.tensor([b.filter_length for b in batch]),
             # dummy wrapper for selection prompt
             selection_dict = [b.selection_dict for b in batch]
         )
