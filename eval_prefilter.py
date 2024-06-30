@@ -323,9 +323,14 @@ def eval(dataloader, model, tokenizer, args):
     print("object id accuracy:", object_id_correct / object_gt_total)
     print("frontier type accuracy:", frontier_type_correct / frontier_gt_total)
     print("frontier id accuracy:", frontier_id_correct / frontier_gt_total)
-    #print("loss:", total_loss / total_sample)
+    print("ranking empty accuracy:", ranking_empty_correct / ranking_empty_total)
+    print("ranking match accuracy:", ranking_match_correct / ranking_match_total)
+    print("filter loss:", total_filter_loss / total_sample)
+    print("selection loss:", total_selection_loss / total_sample)
     print("frontiers total:", frontier_gt_total)
     print("objects total:", object_gt_total)
+    print("ranking empty total:", ranking_empty_total)
+    print("ranking match total:", ranking_match_total)
 
 
 def main():
