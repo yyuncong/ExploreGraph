@@ -110,6 +110,7 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
     filter_input_ids = filter_text["input_ids"]
     filter_length = torch.nonzero(filter_input_ids).shape[0]
     filter_attention_mask = filter_text["attention_mask"]
+    print("raw text of filter prompt:", filter_text)
     return filter_input_ids, filter_length, filter_attention_mask
 
 
@@ -150,7 +151,7 @@ def prepare_object_input(
     else:
         object_features = torch.stack(object_features, dim=0)
     text += "/\n"
-
+    print("object prompt", text)
     return text, object_features, object_prediction 
 
 def construct_selection_prompt(
@@ -214,7 +215,7 @@ def construct_selection_prompt(
     # format answer
     text += "Answer: "
     text += answer + tokenizer.eos_token
-    
+    print("final selection prompt", text)
     if max_length <= len(text):
         return "input too long"
     
@@ -489,8 +490,11 @@ class ExploreDataset(Dataset):
             return self.__getitem__(index)
         
         # This is the target ranking for prefiltering
+        print("the raw ranking given by GPT-4", ranking)
         ranking = [cls for cls in ranking if cls in class2object.keys()]
         ranking = ranking[: self.top_k_categories]
+        print("the list of seen objects", list(class2object.keys()))
+        print(f"the top {self.top_k_categories} ranking of seen objects", ranking)
         '''
         object_text, object_features, object_prediction = prepare_object_input(
             class2object,
@@ -518,88 +522,6 @@ class ExploreDataset(Dataset):
         #multi_src_features.append(frontier_features)
         # print("prediction before reformat", prediction)
         # prepare prediction and answer
-        '''
-        prediction = np.concatenate(
-            (
-                prediction[keep_indices],
-                prediction[[idx + len(step["scene_graph"]) for idx in frontier_index]],
-            )
-        )
-        # print("reformatted prediction", prediction)
-        prediction = torch.tensor(prediction)
-        # assert prediction.shape[0] == len(object_features) + len(step["frontiers"])
-        assert prediction.shape[0] == object_index + len(step["frontiers"])
-        # GPT problem: prefiltering filter out the answer object
-        if not np.where(prediction == 1.0)[0].shape[0] == 1:
-            self.answer_obj_filtered_indices.add(idx)
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
-
-        prediction_index = np.where(prediction == 1.0)[0][0]
-        if prediction_index < object_index:
-            answer = f"object {prediction_index}"
-        else:
-            answer = f"frontier {prediction_index - object_index}"
-
-        text += "Answer: "
-        text += answer + self.tokenizer.eos_token
-        # randomly choose another item
-        if object_features is None and frontier_features is None:
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
-
-        # default order: egocentric views -> action memory -> objects -> frontiers
-        multi_src_features = [f for f in multi_src_features if f is not None]
-        scene_feature = torch.cat(multi_src_features, dim=0)
-        if len(scene_feature) > 50:
-            # take a random integer index
-            # random_idx = np.random.randint(0, len(self.data))
-            self.too_many_objects_indices.add(idx)
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
-            # return self.__getitem__(random_idx)
-
-        step["scene_feature"] = scene_feature
-        # remove scene graph id --- remove this if we need to keep id
-
-        # make sure all things are included
-        # print("selection prompt", len(text))
-        # print(text)
-        if self.max_length <= len(text):
-            # print(text)
-            self.too_many_objects_indices.add(idx)
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
-
-        assert self.max_length > len(text)
-        assert self.max_length > len(
-            scene_feature
-        )  # make sure that scene feature is never truncated
-        text = self.tokenizer(
-            text,
-            return_tensors="pt",
-            max_length=self.max_length,
-            truncation=True,
-            padding="max_length",
-        )
-        input_ids = text["input_ids"]
-        length = torch.nonzero(input_ids).shape[0]
-
-        attention_mask = text["attention_mask"]
-
-        scene_insert_loc = (
-            (input_ids == self.scene_token_id).nonzero()[:, 1].reshape(-1)
-        )
-        input_dict = EasyDict(
-            text=text,
-            input_ids=input_ids,
-            length=length,
-            scene_length=len(scene_feature),
-            attention_mask=attention_mask,
-            scene_feature=scene_feature,
-            scene_insert_loc=scene_insert_loc,
-        )
-        '''
         # add prompt input for prefiltering
         # assume always use prefiltering
         #if self.prefiltering:
@@ -710,6 +632,12 @@ class ExploreDataset(Dataset):
             i
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
+            and int(self.episodes[i]["scene"].split("-")[0]) < 800
+        ]
+        train_episode = [
+            i 
+            for i in range(len(self.episodes))
+            if int(self.episodes[i]["scene"].split("-")[0]) <= 700
         ]
         # print("test episode", test_episode)
         train_index, test_index = [], []
@@ -717,7 +645,7 @@ class ExploreDataset(Dataset):
         for i in self.episode2step.keys():
             if i in test_episode:
                 test_index.extend(self.episode2step[i])
-            else:
+            if i in train_episode:
                 train_index.extend(self.episode2step[i])
         return train_index, test_index
 

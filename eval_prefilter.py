@@ -188,6 +188,15 @@ def eval(dataloader, model, tokenizer, args):
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
+            print(
+                tokenizer.decode(
+                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+                )
+            )
+            print(tokenizer.decode(
+                    filter_input_ids[0][answer_indices[0]+2:]
+                )
+            )
             with torch.autocast(device_type="cuda"):
                 filter_outputs = model(
                     input_ids=filter_input_ids,
@@ -221,7 +230,8 @@ def eval(dataloader, model, tokenizer, args):
                 .strip()
             )
             answer = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            
+            print('the model output',outputs)
+            print('decoded answer', answer)
             if outputs == 'No object available':
                 ranking_empty_total += 1
                 if answer == outputs:
@@ -232,8 +242,10 @@ def eval(dataloader, model, tokenizer, args):
                 answer = set(answer.split("\n"))
                 ranking_match_total += len(outputs)
                 ranking_match_correct += len(outputs&answer)
-            
+            print("splited answer", answer)
             # construct selection prompt and get the answer
+            print("the text before object",selection_dict.text_before_object)
+            print("the text after object",selection_dict.frontier_text)
             selection_dict = sample.selection_dict[0]
             selection_sample = construct_selection_prompt(
                 tokenizer,
@@ -258,10 +270,15 @@ def eval(dataloader, model, tokenizer, args):
                 scene_length=selection_sample.scene_length,
             )
             input_ids = selection_sample.input_ids.to("cuda")
+            # test the output of construct_selection_prompt
+            print(
+                tokenizer.decode(
+                    input_ids[0][input_ids[0] != tokenizer.pad_token_id]
+                )
+            )
             attention_mask = selection_sample.attention_mask.to("cuda")
             labels = input_ids.clone()
             answer_indices = torch.where(labels == 22550)[1]
-            
             for j, answer_idx in enumerate(answer_indices):
                 labels[j, : answer_idx + 2] = -100
             labels[labels == tokenizer.pad_token_id] = -100
@@ -293,8 +310,9 @@ def eval(dataloader, model, tokenizer, args):
                 .replace("</s>", "")
                 .strip()
             )
+            print('final selection result', outputs)
             gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            
+            print('ground truth', gt)
             gt_type = gt.split(" ")[0]
             gt_id = gt.split(" ")[1]
             outputs_type = outputs.split(" ")[0]
