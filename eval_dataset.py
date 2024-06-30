@@ -188,6 +188,8 @@ def construct_selection_prompt(
     scene_feature = feature_before_object + [object_features] + [frontier_features]
     scene_feature = [f for f in scene_feature if f is not None]
     scene_feature = torch.cat(scene_feature, dim=0)
+    if len(scene_feature) > 50:
+        return "too many objects"
     
     # format prediction
     prediction = np.concatenate(
@@ -423,16 +425,16 @@ class ExploreDataset(Dataset):
         # Jiachen TODO 1: load ranking
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         # collections of features from egocentric view/action memory/scene graph/frontiers
-        multi_src_features = []
+        feature_before_object = []
         # separately consider text before object (Questions, egocentric views, action memory)
         # text after object (frontiers, answer)d
-        pre_object_text, after_object_text = "", ""
+        # text_before_object = ""
 
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
 
-        pre_object_text = f"Question: {episode['question']}\n"
+        text_before_object = f"Question: {episode['question']}\n"
 
         if self.egocentric_views:
             try:
@@ -442,15 +444,15 @@ class ExploreDataset(Dataset):
             except:
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
-            pre_object_text += egocentric_text
-            multi_src_features.append(egocentric_features)
+            text_before_object += egocentric_text
+            feature_before_object.append(egocentric_features)
 
-        pre_object_text += f"Select the frontier/object that would help finding the answer of the question.\n"
+        text_before_object += f"Select the frontier/object that would help finding the answer of the question.\n"
 
         if self.action_memory:
             memory_text, memory_feature = prepare_action_memory(step["previous_choice"])
-            pre_object_text += memory_text
-            multi_src_features.append(memory_feature)
+            text_before_object += memory_text
+            feature_before_object.append(memory_feature)
 
         # replace scene graph in each steps with scene feature
         # Jiachen TODO 2: extract seen object categories at the same time
@@ -485,48 +487,11 @@ class ExploreDataset(Dataset):
             self.obj_not_found_indices.add(idx)
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
+        
+        # This is the target ranking for prefiltering
+        ranking = [cls for cls in ranking if cls in class2object.keys()]
+        ranking = ranking[: self.top_k_categories]
         '''
-        if self.prefiltering:
-            # 1. filter unseen object categories in ranking
-            ranking = [cls for cls in ranking if cls in class2object.keys()]
-            # print("seen ranking:", ranking)
-            # 2. take top k object categories
-            ranking = ranking[: self.top_k_categories]
-            # print(f"top {self.top_k_categories} ranking:", ranking)
-            # 3. reformulate the object indices, classes and features
-            keep_indices = [
-                keep_indices[obj_idx]
-                for cls in ranking
-                for obj_idx in class2object[cls]
-            ]
-            object_classes = [cls for cls in ranking for _ in class2object[cls]]
-            object_features = [
-                object_features[obj_idx]
-                for cls in ranking
-                for obj_idx in class2object[cls]
-            ]
-            # Note that if apply prefiltering, we may have #(objects) < object_index
-            # 4. reassign object_index = #(object)
-            object_index = len(keep_indices)
-
-            # print("filtered indices:", keep_indices)
-            # print("filtered categories:", object_classes)
-
-        text += "These are the objects already in our scene graph:\n"
-        for i, class_name in enumerate(object_classes):
-            text += f"object {i} {class_name} <scene> "
-
-        if object_index == 0:
-            text += f"No object available "
-            # construct zero scene feature if all objects are missed
-            object_features = None
-        else:
-            object_features = torch.stack(object_features, dim=0)
-            # add object features
-            multi_src_features.append(object_features)
-        text += "/\n"
-        '''
-
         object_text, object_features, object_prediction = prepare_object_input(
             class2object,
             object_prediction,
@@ -536,14 +501,10 @@ class ExploreDataset(Dataset):
             ranking,
             self.top_k_categories,
         )
-
+        '''
         # shuffle frontier index
         # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
         frontier_index = list(range(len(step["frontiers"])))
-        # shuffle the index if random_permute is True otherwise keep the original order
-        # if shuffle:
-        #    np.random.shuffle(frontier_index)
-        # print("random_frontier_index", frontier_index)
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
@@ -552,11 +513,12 @@ class ExploreDataset(Dataset):
         if frontier_text is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        text += frontier_text
+        #text += frontier_text
         # add frontier features
-        multi_src_features.append(frontier_features)
+        #multi_src_features.append(frontier_features)
         # print("prediction before reformat", prediction)
         # prepare prediction and answer
+        '''
         prediction = np.concatenate(
             (
                 prediction[keep_indices],
@@ -581,7 +543,6 @@ class ExploreDataset(Dataset):
 
         text += "Answer: "
         text += answer + self.tokenizer.eos_token
-
         # randomly choose another item
         if object_features is None and frontier_features is None:
             index = np.random.choice(self.indices)
@@ -590,7 +551,6 @@ class ExploreDataset(Dataset):
         # default order: egocentric views -> action memory -> objects -> frontiers
         multi_src_features = [f for f in multi_src_features if f is not None]
         scene_feature = torch.cat(multi_src_features, dim=0)
-
         if len(scene_feature) > 50:
             # take a random integer index
             # random_idx = np.random.randint(0, len(self.data))
@@ -615,7 +575,6 @@ class ExploreDataset(Dataset):
         assert self.max_length > len(
             scene_feature
         )  # make sure that scene feature is never truncated
-
         text = self.tokenizer(
             text,
             return_tensors="pt",
@@ -640,25 +599,46 @@ class ExploreDataset(Dataset):
             scene_feature=scene_feature,
             scene_insert_loc=scene_insert_loc,
         )
+        '''
         # add prompt input for prefiltering
-        if self.prefiltering:
-            classes = list(class2object.keys())
-            # if shuffle:
-            #    np.random.shuffle(classes)
-            (
-                input_dict.filter_input_ids,
-                input_dict.filter_length,
-                input_dict.filter_attention_mask,
-            ) = prepare_prefiltering_input(
-                episode["question"],
-                self.tokenizer,
-                classes,
-                ranking,
-                self.max_length,
-                self.top_k_categories,
-            )
+        # assume always use prefiltering
+        #if self.prefiltering:
+        input_dict = EasyDict()
+        classes = list(class2object.keys())
+        # if shuffle:
+        #    np.random.shuffle(classes)
+        (
+            input_dict.filter_input_ids,
+            input_dict.filter_length,
+            input_dict.filter_attention_mask,
+        ) = prepare_prefiltering_input(
+            episode["question"],
+            self.tokenizer,
+            classes,
+            ranking,
+            self.max_length,
+            self.top_k_categories,
+        )
+        selection_dict = EasyDict(
+            scene_token_id=self.scene_token_id,
+            text_before_object=text_before_object,
+            feature_before_object=feature_before_object,
+            frontier_text=frontier_text,
+            frontier_features=frontier_features,
+            frontier_prediction=frontier_prediction,
+            object_info_dict=EasyDict(
+                class2object=class2object,
+                prediction=object_prediction,
+                classes=object_classes,
+                features=object_features,
+            ),
+            prefiltering = self.prefiltering,
+            ranking = ranking,
+            topk = self.top_k_categories,
+        )
+        input_dict.selection_dict = selection_dict
         return input_dict
-
+    '''
     def collate_wrapper(self, batch):
         # because sos token is added, the max_length should be +1?
         max_length = max(b.length for b in batch) + 1
@@ -704,7 +684,23 @@ class ExploreDataset(Dataset):
             scene_length=torch.tensor([b.scene_length for b in batch]),
             max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
         )
-
+    '''
+    
+    def collate_wrapper(self, batch):
+        # wrap up the prefiltering batch
+        max_filter_length = max(b.filter_length for b in batch) + 1
+        return EasyDict(
+            # Jiachen TODO 7
+            filter_input_ids=torch.cat([b.filter_input_ids for b in batch])[
+                ..., :max_filter_length
+            ],
+            filter_attention_mask=torch.cat(
+                [b.filter_attention_mask for b in batch]
+            )[..., :max_filter_length],
+            # dummy wrapper for selection prompt
+            selection_dict = [b.selection_dict for b in batch]
+        )
+        
     # split the dataset by episode id
     def split_index(self, test_ratio=0.3):
         test_num = int(test_ratio * len(self.episodes))
