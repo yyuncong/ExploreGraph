@@ -709,13 +709,18 @@ class ExploreDataset(Dataset):
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
             and int(self.episodes[i]["scene"].split("-")[0]) < 800
         ]
+        train_episode = [
+            i
+            for i in range(len(self.episodes))
+            if int(self.episodes[i]["scene"].split("-")[0]) <= 700
+        ]
         # print("test episode", test_episode)
         train_index, test_index = [], []
         # print(self.episode2step)
         for i in self.episode2step.keys():
             if i in test_episode:
                 test_index.extend(self.episode2step[i])
-            else:
+            if i in train_episode:
                 train_index.extend(self.episode2step[i])
         return train_index, test_index
 

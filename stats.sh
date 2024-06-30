@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1
 
-top_k_categories=3
+top_k_categories=10
 echo "top_k_categories=$top_k_categories"
 
 python singlegpu_stats.py \

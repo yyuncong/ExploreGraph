@@ -274,6 +274,17 @@ def main():
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--random_permute",
+        action="store_true",
+        help="if set true, randomly permute object/frontiers/pre-filtering classes",
+        default=False,
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+    )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
     args = parser.parse_args()
@@ -323,6 +334,7 @@ def main():
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
+        random_permute=args.random_permute,
         tokenizer=tokenizer,
         max_length=2048,
     )
@@ -333,6 +345,7 @@ def main():
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
+        random_permute=args.random_permute,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -403,9 +416,12 @@ def main():
     # start training
 
     saving_folder = f"{args.folder}_{args.lr}"
+    if args.random_permute:
+        saving_folder += "_rand"
     if args.prefiltering:
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
+        saving_folder += "_coeff0.5"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:
