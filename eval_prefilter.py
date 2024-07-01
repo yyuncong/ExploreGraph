@@ -248,7 +248,7 @@ def eval(dataloader, model, tokenizer, args):
             print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
             selection_dict = sample.selection_dict[0]
-            print("the text before object",selection_dict.text_before_object)
+            print("the text before object \n",selection_dict.text_before_object)
             print("the text after object",selection_dict.frontier_text)
             selection_sample = construct_selection_prompt(
                 tokenizer,
@@ -261,7 +261,8 @@ def eval(dataloader, model, tokenizer, args):
                 selection_dict.object_info_dict,
                 True,
                 filter_answer,
-                args.top_k_categories
+                args.top_k_categories,
+                max_length=2048
             )
             if isinstance(selection_sample, str):
                 # Three different types of string indicating different problems
