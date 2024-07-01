@@ -211,7 +211,7 @@ def eval(dataloader, model, tokenizer, args):
             
             # we need filter input_ids length here to get the answer
             filter_input_ids = sample.filter_input_ids.to("cuda")
-            filter_answer_ind = torch.where(sample.fliter_input_ids == 22550)[1][0].item()
+            filter_answer_ind = torch.where(sample.filter_input_ids == 22550)[1][0].item()
             filter_end_ind = sample.filter_length[0].item() - 1
             filter_answer_ids = input_ids[:, filter_answer_ind + 2 : filter_end_ind]
             filter_input_ids = filter_input_ids[:, : filter_answer_ind + 2]
