@@ -215,6 +215,8 @@ def eval(dataloader, model, tokenizer, args):
             filter_end_ind = sample.filter_length[0].item() - 1
             filter_answer_ids = filter_input_ids[:, filter_answer_ind + 2 : filter_end_ind]
             filter_input_ids = filter_input_ids[:, : filter_answer_ind + 2]
+            print('filter answer (all)', filter_input_ids[:, filter_answer_ind+2:])
+            print('filter answer', filter_answer_ids)
 
             with torch.inference_mode() and torch.autocast(device_type="cuda"):
                 filter_output_ids = model.generate(
@@ -231,8 +233,8 @@ def eval(dataloader, model, tokenizer, args):
             )
             filter_answer = tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
             print('the model output',filter_outputs)
-            print('decoded answer', filter_answer)
-            if filter_outputs == 'No object available':
+            print('decoded answer', filter_answer.replace("\n",""))
+            if filter_answer == 'No object available':
                 ranking_empty_total += 1
                 if filter_answer == filter_outputs:
                     ranking_empty_correct += 1
@@ -240,13 +242,14 @@ def eval(dataloader, model, tokenizer, args):
             else:
                 filter_outputs = set(filter_outputs.split("\n"))
                 filter_answer = set(filter_answer.split("\n"))
-                ranking_match_total += len(filter_outputs)
+                ranking_match_total += len(filter_answer)
                 ranking_match_correct += len(filter_outputs&filter_answer)
+            print("splited filter output", filter_outputs)
             print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
-            print("the text before object",sample.text_before_object)
-            print("the text after object",sample.frontier_text)
             selection_dict = sample.selection_dict[0]
+            print("the text before object",selection_dict.text_before_object)
+            print("the text after object",selection_dict.frontier_text)
             selection_sample = construct_selection_prompt(
                 tokenizer,
                 selection_dict.scene_token_id,

@@ -490,7 +490,6 @@ class ExploreDataset(Dataset):
             return self.__getitem__(index)
         
         # This is the target ranking for prefiltering
-        print("the raw ranking given by GPT-4", ranking)
         ranking = [cls for cls in ranking if cls in class2object.keys()]
         ranking = ranking[: self.top_k_categories]
         print("the list of seen objects", list(class2object.keys()))
