@@ -155,6 +155,7 @@ def prepare_object_input(
     print("object prompt \n", text)
     return text, object_features, object_prediction, object_index
 
+
 def construct_selection_prompt(
     tokenizer,
     scene_token_id,
@@ -169,73 +170,68 @@ def construct_selection_prompt(
     # parse result of prefiltering output
     ranking,
     topk,
-    max_length
+    max_length,
 ):
-    object_text, object_features, object_prediction, object_index = prepare_object_input(
-        object_info_dict.class2object,
-        object_info_dict.prediction,
-        object_info_dict.classes,
-        object_info_dict.features,
-        prefiltering,
-        ranking,
-        topk
+    object_text, object_features, object_prediction, object_index = (
+        prepare_object_input(
+            object_info_dict.class2object,
+            object_info_dict.prediction,
+            object_info_dict.classes,
+            object_info_dict.features,
+            prefiltering,
+            ranking,
+            topk,
+        )
     )
-    
+
     text = text_before_object + object_text + frontier_text
-    
+
     # format scene feature
     if object_features is None and frontier_features is None:
         return "missing features"
-    
+
     scene_feature = feature_before_object + [object_features] + [frontier_features]
     scene_feature = [f for f in scene_feature if f is not None]
     scene_feature = torch.cat(scene_feature, dim=0)
     if len(scene_feature) > 50:
         return "too many objects"
-    
+
     # format prediction
-    prediction = np.concatenate(
-        (
-            object_prediction,
-            frontier_prediction
-        )
-    )
+    prediction = np.concatenate((object_prediction, frontier_prediction))
     prediction = torch.tensor(prediction)
     assert prediction.shape[0] == object_index + len(frontier_prediction)
-    
+
     # This means the prefiltering result is incorrect
     if not np.where(prediction == 1.0)[0].shape[0] == 1:
         return "incorrect prefiltering"
-    
+
     prediction_index = np.where(prediction == 1.0)[0][0]
     if prediction_index < object_index:
         answer = f"object {prediction_index}"
     else:
         answer = f"frontier {prediction_index - object_index}"
-        
+
     # format answer
     text += "Answer: "
     text += answer + tokenizer.eos_token
     print("final selection prompt \n", text)
     if max_length <= len(text):
         return "input too long"
-    
+
     text = tokenizer(
         text,
         return_tensors="pt",
         max_length=max_length,
         truncation=True,
-        padding="max_length"
+        padding="max_length",
     )
     input_ids = text["input_ids"]
     length = torch.nonzero(input_ids).shape[0]
 
     attention_mask = text["attention_mask"]
 
-    scene_insert_loc = (
-        (input_ids == scene_token_id).nonzero()[:, 1].reshape(-1)
-    )
-    
+    scene_insert_loc = (input_ids == scene_token_id).nonzero()[:, 1].reshape(-1)
+
     input_dict = EasyDict(
         text=text,
         input_ids=input_ids,
@@ -246,11 +242,11 @@ def construct_selection_prompt(
         scene_insert_loc=scene_insert_loc,
     )
     return input_dict
-    
+
 
 # separate collection function for stage 2 selection prompt
-def collate_selection_wrapper(batch): 
-    
+def collate_selection_wrapper(batch):
+
     # because sos token is added, the max_length should be +1?
     max_length = max(b.length for b in batch) + 1
     max_scene_length = max(b.scene_feature.shape[0] for b in batch)
@@ -266,15 +262,13 @@ def collate_selection_wrapper(batch):
 
     return EasyDict(
         input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
-        attention_mask=torch.cat([b.attention_mask for b in batch])[
-            ..., :max_length
-        ],
+        attention_mask=torch.cat([b.attention_mask for b in batch])[..., :max_length],
         scene_feature=scene_feature,
         scene_insert_loc=scene_insert_loc.to(torch.long),
         scene_length=torch.tensor([b.scene_length for b in batch]),
         max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
     )
-    
+
 
 class ExploreDataset(Dataset):
     def __init__(
@@ -510,19 +504,19 @@ class ExploreDataset(Dataset):
         frontier_prediction = prediction[len(step["scene_graph"]) :]
         if not (
             np.where(object_prediction == 1.0)[0].shape[0]
-            + np.where( frontier_prediction == 1.0)[0].shape[0]
+            + np.where(frontier_prediction == 1.0)[0].shape[0]
             == 1
         ):
             self.obj_not_found_indices.add(idx)
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        
+
         # This is the target ranking for prefiltering
         ranking = [cls for cls in ranking if cls in class2object.keys()]
         ranking = ranking[: self.top_k_categories]
         print("the list of seen objects", list(class2object.keys()))
         print(f"the top {self.top_k_categories} ranking of seen objects", ranking)
-        '''
+        """
         object_text, object_features, object_prediction = prepare_object_input(
             class2object,
             object_prediction,
@@ -532,7 +526,7 @@ class ExploreDataset(Dataset):
             ranking,
             self.top_k_categories,
         )
-        '''
+        """
         # shuffle frontier index
         # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
         frontier_index = list(range(len(step["frontiers"])))
@@ -544,14 +538,14 @@ class ExploreDataset(Dataset):
         if frontier_text is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        #text += frontier_text
+        # text += frontier_text
         # add frontier features
-        #multi_src_features.append(frontier_features)
+        # multi_src_features.append(frontier_features)
         # print("prediction before reformat", prediction)
         # prepare prediction and answer
         # add prompt input for prefiltering
         # assume always use prefiltering
-        #if self.prefiltering:
+        # if self.prefiltering:
         input_dict = EasyDict()
         classes = list(class2object.keys())
         # if shuffle:
@@ -581,13 +575,14 @@ class ExploreDataset(Dataset):
                 classes=object_classes,
                 features=object_features,
             ),
-            prefiltering = self.prefiltering,
-            ranking = ranking,
-            topk = self.top_k_categories,
+            prefiltering=self.prefiltering,
+            ranking=ranking,
+            topk=self.top_k_categories,
         )
         input_dict.selection_dict = selection_dict
         return input_dict
-    '''
+
+    """
     def collate_wrapper(self, batch):
         # because sos token is added, the max_length should be +1?
         max_length = max(b.length for b in batch) + 1
@@ -633,8 +628,8 @@ class ExploreDataset(Dataset):
             scene_length=torch.tensor([b.scene_length for b in batch]),
             max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
         )
-    '''
-    
+    """
+
     def collate_wrapper(self, batch):
         # wrap up the prefiltering batch
         max_filter_length = max(b.filter_length for b in batch) + 1
@@ -643,14 +638,14 @@ class ExploreDataset(Dataset):
             filter_input_ids=torch.cat([b.filter_input_ids for b in batch])[
                 ..., :max_filter_length
             ],
-            filter_attention_mask=torch.cat(
-                [b.filter_attention_mask for b in batch]
-            )[..., :max_filter_length],
+            filter_attention_mask=torch.cat([b.filter_attention_mask for b in batch])[
+                ..., :max_filter_length
+            ],
             filter_length=torch.tensor([b.filter_length for b in batch]),
             # dummy wrapper for selection prompt
-            selection_dict = [b.selection_dict for b in batch]
+            selection_dict=[b.selection_dict for b in batch],
         )
-        
+
     # split the dataset by episode id
     def split_index(self, test_ratio=0.3):
         test_num = int(test_ratio * len(self.episodes))
@@ -662,7 +657,7 @@ class ExploreDataset(Dataset):
             and int(self.episodes[i]["scene"].split("-")[0]) < 800
         ]
         train_episode = [
-            i 
+            i
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) <= 700
         ]

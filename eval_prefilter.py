@@ -8,7 +8,11 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from eval_dataset import ExploreDataset, construct_selection_prompt, collate_selection_wrapper
+from eval_dataset import (
+    ExploreDataset,
+    construct_selection_prompt,
+    collate_selection_wrapper,
+)
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -163,7 +167,7 @@ def eval(dataloader, model, tokenizer, args):
     frontier_gt_total = 0
     frontier_type_correct = 0
     frontier_id_correct = 0
-    
+
     # evaluation metric for pre-filtering
     # correctly answer: No object available
     ranking_empty_total = 0
@@ -193,30 +197,31 @@ def eval(dataloader, model, tokenizer, args):
                     filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
                 )
             )
-            print(tokenizer.decode(
-                    filter_input_ids[0][filter_answer_indices[0]+2:]
-                )
-            )
+            print(tokenizer.decode(filter_input_ids[0][filter_answer_indices[0] + 2 :]))
             with torch.autocast(device_type="cuda"):
                 filter_outputs = model(
                     input_ids=filter_input_ids,
                     attention_mask=filter_attention_mask,
                     labels=filter_labels,
-                    feature_dict = None,
+                    feature_dict=None,
                     output_hidden_states=True,
                 )
             filter_loss = filter_outputs.loss
             total_filter_loss += filter_loss.item()
             total_sample += filter_input_ids.shape[0]
-            
+
             # we need filter input_ids length here to get the answer
             filter_input_ids = sample.filter_input_ids.to("cuda")
-            filter_answer_ind = torch.where(sample.filter_input_ids == 22550)[1][0].item()
+            filter_answer_ind = torch.where(sample.filter_input_ids == 22550)[1][
+                0
+            ].item()
             filter_end_ind = sample.filter_length[0].item() - 1
-            filter_answer_ids = filter_input_ids[:, filter_answer_ind + 2 : filter_end_ind]
-            print('filter answer (all)', filter_input_ids[:, filter_answer_ind + 2:])
+            filter_answer_ids = filter_input_ids[
+                :, filter_answer_ind + 2 : filter_end_ind
+            ]
+            print("filter answer (all)", filter_input_ids[:, filter_answer_ind + 2 :])
             filter_input_ids = filter_input_ids[:, : filter_answer_ind + 2]
-            print('filter answer', filter_answer_ids)
+            print("filter answer", filter_answer_ids)
 
             with torch.inference_mode() and torch.autocast(device_type="cuda"):
                 filter_output_ids = model.generate(
@@ -231,10 +236,12 @@ def eval(dataloader, model, tokenizer, args):
                 .replace("</s>", "")
                 .strip()
             )
-            filter_answer = tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
-            print('the model output',filter_outputs)
-            print('decoded answer', filter_answer.replace("\n","/"))
-            if filter_answer == 'No object available':
+            filter_answer = (
+                tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
+            )
+            print("the model output", filter_outputs)
+            print("decoded answer", filter_answer.replace("\n", "/"))
+            if filter_answer == "No object available":
                 ranking_empty_total += 1
                 if filter_answer == filter_outputs:
                     ranking_empty_correct += 1
@@ -244,15 +251,15 @@ def eval(dataloader, model, tokenizer, args):
                 filter_answer = filter_answer.split("\n")
                 ranking_match_total += len(filter_answer)
                 # the order matters
-                for i in range(min(len(filter_outputs),len(filter_answer))):
+                for i in range(min(len(filter_outputs), len(filter_answer))):
                     if filter_outputs[i] == filter_answer[i]:
                         ranking_match_correct += 1
             print("splited filter output", filter_outputs)
             print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
             selection_dict = sample.selection_dict[0]
-            print("the text before object \n",selection_dict.text_before_object)
-            print("the text after object \n",selection_dict.frontier_text)
+            print("the text before object \n", selection_dict.text_before_object)
+            print("the text after object \n", selection_dict.frontier_text)
             selection_sample = construct_selection_prompt(
                 tokenizer,
                 selection_dict.scene_token_id,
@@ -266,7 +273,7 @@ def eval(dataloader, model, tokenizer, args):
                 # here the input ranking is the output of pre-filtering stage
                 filter_outputs,
                 args.top_k_categories,
-                max_length=2048
+                max_length=2048,
             )
             if isinstance(selection_sample, str):
                 # Three different types of string indicating different problems
@@ -281,9 +288,7 @@ def eval(dataloader, model, tokenizer, args):
             input_ids = selection_sample.input_ids.to("cuda")
             # test the output of construct_selection_prompt
             print(
-                tokenizer.decode(
-                    input_ids[0][input_ids[0] != tokenizer.pad_token_id]
-                )
+                tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
             )
             attention_mask = selection_sample.attention_mask.to("cuda")
             labels = input_ids.clone()
@@ -301,12 +306,12 @@ def eval(dataloader, model, tokenizer, args):
                 )
             selection_loss = outputs.loss
             total_selection_loss += selection_loss.item()
-            
+
             input_ids = selection_sample.input_ids.to("cuda")
             answer_ind = torch.where(selection_sample.input_ids == 22550)[1][0].item()
             answer_ids = input_ids[:, answer_ind + 2 : answer_ind + 6]
             input_ids = input_ids[:, : answer_ind + 2]
-            
+
             with torch.inference_mode() and torch.autocast(device_type="cuda"):
                 output_ids = model.generate(
                     input_ids,
@@ -314,14 +319,14 @@ def eval(dataloader, model, tokenizer, args):
                     do_sample=False,
                     max_new_tokens=10,
                 )
-            outputs = ( 
+            outputs = (
                 tokenizer.decode(output_ids[0, input_ids.shape[1] :])
                 .replace("</s>", "")
                 .strip()
             )
-            print('final selection result', outputs)
+            print("final selection result", outputs)
             gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            print('ground truth', gt)
+            print("ground truth", gt)
             gt_type = gt.split(" ")[0]
             gt_id = gt.split(" ")[1]
             outputs_type = outputs.split(" ")[0]
@@ -342,7 +347,7 @@ def eval(dataloader, model, tokenizer, args):
             total += 1
             if gt.lower().strip() == outputs.lower().strip():
                 correct += 1
-            
+
             pbar.set_description(f"acc: {correct / total}")
 
     print("accuracy:", correct / total)
@@ -385,13 +390,19 @@ def main():
         help="Use horovod for distributed training.",
     )
     parser.add_argument("--num_epochs", default=10, type=int)
-    #parser.add_argument("--folder", default="tmp", help="save folder")
+    # parser.add_argument("--folder", default="tmp", help="save folder")
     # revise the saving folder for checkpoint
-    parser.add_argument("--ckpt_folder", default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yuncong/ExploreGraph-dev/ckpts", help="save folder")
-    parser.add_argument("--folder", 
-        #default="merged_16_1e-06_rand_filter_top10_coeff0.3_ego", 
-        default = "tmp",
-        help="save folder")
+    parser.add_argument(
+        "--ckpt_folder",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yuncong/ExploreGraph-dev/ckpts",
+        help="save folder",
+    )
+    parser.add_argument(
+        "--folder",
+        # default="merged_16_1e-06_rand_filter_top10_coeff0.3_ego",
+        default="tmp",
+        help="save folder",
+    )
     parser.add_argument("--ckpt_index", default=0, type=int)
     parser.add_argument(
         "--scene_path",
@@ -487,9 +498,9 @@ def main():
     # model.requires_grad_(True)
     del model.model.vision_tower
 
-    #saving_folder = f"{args.folder}_{args.lr}"
+    # saving_folder = f"{args.folder}_{args.lr}"
     # dummy input for run
-    saving_folder = os.path.join(args.ckpt_folder,f"{args.folder}_{args.lr}")
+    saving_folder = os.path.join(args.ckpt_folder, f"{args.folder}_{args.lr}")
     if args.random_permute:
         saving_folder += "_rand"
     if args.prefiltering:
