@@ -475,7 +475,9 @@ def main():
     # model.requires_grad_(True)
     del model.model.vision_tower
 
-    saving_folder = f"{args.folder}_{args.lr}"
+    #saving_folder = f"{args.folder}_{args.lr}"
+    # dummy input for run
+    saving_folder = args.folder
     if args.random_permute:
         saving_folder += "_rand"
     if args.prefiltering:
