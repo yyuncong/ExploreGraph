@@ -215,7 +215,7 @@ def construct_selection_prompt(
     # format answer
     text += "Answer: "
     text += answer + tokenizer.eos_token
-    print("final selection prompt", text)
+    print("final selection prompt \n", text)
     if max_length <= len(text):
         return "input too long"
     

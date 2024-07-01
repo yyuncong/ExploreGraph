@@ -240,10 +240,13 @@ def eval(dataloader, model, tokenizer, args):
                     ranking_empty_correct += 1
                 filter_answer = []
             else:
-                filter_outputs = set(filter_outputs.split("\n"))
-                filter_answer = set(filter_answer.split("\n"))
+                filter_outputs = filter_outputs.split("\n")
+                filter_answer = filter_answer.split("\n")
                 ranking_match_total += len(filter_answer)
-                ranking_match_correct += len(filter_outputs&filter_answer)
+                # the order matters
+                for i in range(min(len(filter_outputs),len(filter_answer))):
+                    if filter_outputs[i] == filter_answer[i]:
+                        ranking_match_correct += 1
             print("splited filter output", filter_outputs)
             print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
@@ -260,7 +263,8 @@ def eval(dataloader, model, tokenizer, args):
                 selection_dict.frontier_prediction,
                 selection_dict.object_info_dict,
                 True,
-                filter_answer,
+                # here the input ranking is the output of pre-filtering stage
+                filter_outputs,
                 args.top_k_categories,
                 max_length=2048
             )
@@ -291,7 +295,7 @@ def eval(dataloader, model, tokenizer, args):
                 outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    labels=None,
+                    labels=labels,
                     feature_dict=feature_dict,
                     output_hidden_states=True,
                 )
