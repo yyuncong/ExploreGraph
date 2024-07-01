@@ -387,8 +387,10 @@ def main():
     parser.add_argument("--num_epochs", default=10, type=int)
     #parser.add_argument("--folder", default="tmp", help="save folder")
     # revise the saving folder for checkpoint
+    parser.add_argument("--ckpt_folder", default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yuncong/ExploreGraph-dev/ckpts", help="save folder")
     parser.add_argument("--folder", 
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yuncong/ExploreGraph-dev/ckpts/merged_17_1e-07_rand_filter_top5_coeff0.0", 
+        #default="merged_16_1e-06_rand_filter_top10_coeff0.3_ego", 
+        default = "tmp",
         help="save folder")
     parser.add_argument("--ckpt_index", default=0, type=int)
     parser.add_argument(
@@ -420,6 +422,7 @@ def main():
         help="if set true, randomly permute object/frontiers/pre-filtering classes",
         default=False,
     )
+    parser.add_argument("--filter_coeff", type=float, default=0.5)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -486,12 +489,13 @@ def main():
 
     #saving_folder = f"{args.folder}_{args.lr}"
     # dummy input for run
-    saving_folder = args.folder
+    saving_folder = os.path.join(args.ckpt_folder,f"{args.folder}_{args.lr}")
     if args.random_permute:
         saving_folder += "_rand"
     if args.prefiltering:
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
+        saving_folder += f"_coeff{args.filter_coeff}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:
