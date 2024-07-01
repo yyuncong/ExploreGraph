@@ -194,7 +194,7 @@ def eval(dataloader, model, tokenizer, args):
                 )
             )
             print(tokenizer.decode(
-                    filter_input_ids[0][answer_indices[0]+2:]
+                    filter_input_ids[0][filter_answer_indices[0]+2:]
                 )
             )
             with torch.autocast(device_type="cuda"):
@@ -244,8 +244,8 @@ def eval(dataloader, model, tokenizer, args):
                 ranking_match_correct += len(outputs&answer)
             print("splited answer", answer)
             # construct selection prompt and get the answer
-            print("the text before object",selection_dict.text_before_object)
-            print("the text after object",selection_dict.frontier_text)
+            print("the text before object",sample.text_before_object)
+            print("the text after object",sample.frontier_text)
             selection_dict = sample.selection_dict[0]
             selection_sample = construct_selection_prompt(
                 tokenizer,

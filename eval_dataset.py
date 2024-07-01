@@ -100,6 +100,7 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
     # print("filtering prompt", len(filter_text))
     # print(filter_text)
     # Jiachen TODO 7: output filter_input_ids/filter_attention_mask/filter_length for the filtering question
+    print("raw text of filter prompt:", filter_text)
     filter_text = tokenizer(
         filter_text,
         return_tensors="pt",
@@ -110,7 +111,6 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
     filter_input_ids = filter_text["input_ids"]
     filter_length = torch.nonzero(filter_input_ids).shape[0]
     filter_attention_mask = filter_text["attention_mask"]
-    print("raw text of filter prompt:", filter_text)
     return filter_input_ids, filter_length, filter_attention_mask
 
 
