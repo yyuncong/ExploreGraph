@@ -376,7 +376,11 @@ def main():
         help="Use horovod for distributed training.",
     )
     parser.add_argument("--num_epochs", default=10, type=int)
-    parser.add_argument("--folder", default="tmp", help="save folder")
+    #parser.add_argument("--folder", default="tmp", help="save folder")
+    # revise the saving folder for checkpoint
+    parser.add_argument("--folder", 
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yuncong/ExploreGraph-dev/ckpts/merged_17_1e-07_rand_filter_top5_coeff0.0", 
+        help="save folder")
     parser.add_argument("--ckpt_index", default=0, type=int)
     parser.add_argument(
         "--scene_path",
