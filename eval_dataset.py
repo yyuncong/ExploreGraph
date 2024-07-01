@@ -208,10 +208,10 @@ def construct_selection_prompt(
         return "incorrect prefiltering"
     
     prediction_index = np.where(prediction == 1.0)[0][0]
-    if prediction_index < object_features.shape[0]:
+    if prediction_index < object_index:
         answer = f"object {prediction_index}"
     else:
-        answer = f"frontier {prediction_index - object_features.shape[0]}"
+        answer = f"frontier {prediction_index - object_index}"
         
     # format answer
     text += "Answer: "
