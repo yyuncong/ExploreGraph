@@ -126,6 +126,7 @@ def prepare_object_input(
 ):
 
     # Cases where prefiltering over objects is needed
+    object_index = len(object_classes)
     if prefiltering:
         ranking = [cls for cls in ranking if cls in class2object.keys()]
         ranking = ranking[:topk]
@@ -138,7 +139,7 @@ def prepare_object_input(
         ]
         # Note that if apply prefiltering, we may have #(objects) < object_index
         # 4. reassign object_index = #(object)
-        object_index = len(object_prediction)
+        object_index = len(object_classes)
 
     text = "These are the objects already in our scene graph:\n"
     for i, class_name in enumerate(object_classes):
@@ -152,7 +153,7 @@ def prepare_object_input(
         object_features = torch.stack(object_features, dim=0)
     text += "/\n"
     print("object prompt \n", text)
-    return text, object_features, object_prediction 
+    return text, object_features, object_prediction, object_index
 
 def construct_selection_prompt(
     tokenizer,
@@ -170,7 +171,7 @@ def construct_selection_prompt(
     topk,
     max_length
 ):
-    object_text, object_features, object_prediction = prepare_object_input(
+    object_text, object_features, object_prediction, object_index = prepare_object_input(
         object_info_dict.class2object,
         object_info_dict.prediction,
         object_info_dict.classes,
@@ -200,7 +201,7 @@ def construct_selection_prompt(
         )
     )
     prediction = torch.tensor(prediction)
-    assert prediction.shape[0] == object_features.shape[0] + frontier_features.shape[0]
+    assert prediction.shape[0] == object_index + len(frontier_prediction)
     
     # This means the prefiltering result is incorrect
     if not np.where(prediction == 1.0)[0].shape[0] == 1:

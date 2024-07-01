@@ -214,8 +214,8 @@ def eval(dataloader, model, tokenizer, args):
             filter_answer_ind = torch.where(sample.filter_input_ids == 22550)[1][0].item()
             filter_end_ind = sample.filter_length[0].item() - 1
             filter_answer_ids = filter_input_ids[:, filter_answer_ind + 2 : filter_end_ind]
+            print('filter answer (all)', filter_input_ids[:, filter_answer_ind + 2:])
             filter_input_ids = filter_input_ids[:, : filter_answer_ind + 2]
-            print('filter answer (all)', filter_input_ids[:, filter_answer_ind+2:])
             print('filter answer', filter_answer_ids)
 
             with torch.inference_mode() and torch.autocast(device_type="cuda"):
@@ -233,7 +233,7 @@ def eval(dataloader, model, tokenizer, args):
             )
             filter_answer = tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
             print('the model output',filter_outputs)
-            print('decoded answer', filter_answer.replace("\n",""))
+            print('decoded answer', filter_answer.replace("\n","/"))
             if filter_answer == 'No object available':
                 ranking_empty_total += 1
                 if filter_answer == filter_outputs:
