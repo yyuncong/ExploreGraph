@@ -225,7 +225,7 @@ def eval(dataloader, model, tokenizer, args):
                     max_new_tokens=30,
                 )
             filter_outputs = (
-                tokenizer.decode(filter_output_ids[0, input_ids.shape[1] :])
+                tokenizer.decode(filter_output_ids[0, filter_input_ids.shape[1] :])
                 .replace("</s>", "")
                 .strip()
             )
