@@ -210,39 +210,39 @@ def eval(dataloader, model, tokenizer, args):
             total_sample += filter_input_ids.shape[0]
             
             # we need filter input_ids length here to get the answer
-            input_ids = sample.input_ids.to("cuda")
-            answer_ind = torch.where(sample.input_ids == 22550)[1][0].item()
-            end_ind = sample.filter_length[0].item() - 1
-            answer_ids = input_ids[:, answer_ind + 2 : end_ind]
-            input_ids = input_ids[:, : answer_ind + 2]
+            filter_input_ids = sample.filter_input_ids.to("cuda")
+            filter_answer_ind = torch.where(sample.fliter_input_ids == 22550)[1][0].item()
+            filter_end_ind = sample.filter_length[0].item() - 1
+            filter_answer_ids = input_ids[:, filter_answer_ind + 2 : filter_end_ind]
+            filter_input_ids = filter_input_ids[:, : filter_answer_ind + 2]
 
             with torch.inference_mode() and torch.autocast(device_type="cuda"):
-                output_ids = model.generate(
-                    input_ids,
+                filter_output_ids = model.generate(
+                    filter_input_ids,
                     feature_dict=None,
                     do_sample=False,
                     # allow for some long classes
                     max_new_tokens=30,
                 )
-            outputs = (
-                tokenizer.decode(output_ids[0, input_ids.shape[1] :])
+            filter_outputs = (
+                tokenizer.decode(filter_output_ids[0, input_ids.shape[1] :])
                 .replace("</s>", "")
                 .strip()
             )
-            answer = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            print('the model output',outputs)
-            print('decoded answer', answer)
-            if outputs == 'No object available':
+            filter_answer = tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
+            print('the model output',filter_outputs)
+            print('decoded answer', filter_answer)
+            if filter_outputs == 'No object available':
                 ranking_empty_total += 1
-                if answer == outputs:
+                if filter_answer == filter_outputs:
                     ranking_empty_correct += 1
-                answer = []
+                filter_answer = []
             else:
-                outputs = set(outputs.split("\n"))
-                answer = set(answer.split("\n"))
-                ranking_match_total += len(outputs)
-                ranking_match_correct += len(outputs&answer)
-            print("splited answer", answer)
+                filter_outputs = set(filter_outputs.split("\n"))
+                filter_answer = set(filter_answer.split("\n"))
+                ranking_match_total += len(filter_outputs)
+                ranking_match_correct += len(filter_outputs&filter_answer)
+            print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
             print("the text before object",sample.text_before_object)
             print("the text after object",sample.frontier_text)
@@ -257,11 +257,12 @@ def eval(dataloader, model, tokenizer, args):
                 selection_dict.frontier_prediction,
                 selection_dict.object_info_dict,
                 True,
-                answer,
+                filter_answer,
                 args.top_k_categories
             )
             if isinstance(selection_sample, str):
                 # Three different types of string indicating different problems
+                print(selection_sample)
                 continue
             
             feature_dict = EasyDict(
