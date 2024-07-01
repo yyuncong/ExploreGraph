@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from eval_dataset import ExploreDataset, construct_selection_prompt
+from eval_dataset import ExploreDataset, construct_selection_prompt, collate_selection_wrapper
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -249,7 +249,7 @@ def eval(dataloader, model, tokenizer, args):
             # construct selection prompt and get the answer
             selection_dict = sample.selection_dict[0]
             print("the text before object \n",selection_dict.text_before_object)
-            print("the text after object",selection_dict.frontier_text)
+            print("the text after object \n",selection_dict.frontier_text)
             selection_sample = construct_selection_prompt(
                 tokenizer,
                 selection_dict.scene_token_id,
@@ -268,7 +268,7 @@ def eval(dataloader, model, tokenizer, args):
                 # Three different types of string indicating different problems
                 print(selection_sample)
                 continue
-            
+            selection_sample = collate_selection_wrapper([selection_sample])
             feature_dict = EasyDict(
                 scene_feature=selection_sample.scene_feature.to("cuda"),
                 scene_insert_loc=selection_sample.scene_insert_loc,

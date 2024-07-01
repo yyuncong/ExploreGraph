@@ -151,7 +151,7 @@ def prepare_object_input(
     else:
         object_features = torch.stack(object_features, dim=0)
     text += "/\n"
-    print("object prompt", text)
+    print("object prompt \n", text)
     return text, object_features, object_prediction 
 
 def construct_selection_prompt(
@@ -246,6 +246,33 @@ def construct_selection_prompt(
     )
     return input_dict
     
+
+# separate collection function for stage 2 selection prompt
+def collate_selection_wrapper(batch): 
+    
+    # because sos token is added, the max_length should be +1?
+    max_length = max(b.length for b in batch) + 1
+    max_scene_length = max(b.scene_feature.shape[0] for b in batch)
+    # max_frontier_length = max(b.frontier_feature.shape[0] for b in batch)
+
+    scene_feature = torch.zeros((len(batch), max_scene_length, 1024))
+    scene_insert_loc = torch.zeros((len(batch), max_scene_length))
+
+    for j, b in enumerate(batch):
+        scene_feature[j, : b.scene_feature.shape[0]] = b.scene_feature
+        # frontier_feature[j, :b.frontier_feature.shape[0]] = b.frontier_feature
+        scene_insert_loc[j, : b.scene_insert_loc.shape[0]] = b.scene_insert_loc
+
+    return EasyDict(
+        input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
+        attention_mask=torch.cat([b.attention_mask for b in batch])[
+            ..., :max_length
+        ],
+        scene_feature=scene_feature,
+        scene_insert_loc=scene_insert_loc.to(torch.long),
+        scene_length=torch.tensor([b.scene_length for b in batch]),
+        max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
+    )
     
 
 class ExploreDataset(Dataset):
