@@ -136,7 +136,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                     output_hidden_states=True,
                 )
             filter_loss = filter_outputs.loss
-            combined_loss += filter_loss
+            combined_loss += filter_loss * args.filter_coeff
         combined_loss.backward()
         optimizer.step()
         # total_combined_loss += combined_loss.item()
@@ -287,6 +287,10 @@ def main():
     )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
+    parser.add_argument(
+        "--add_positional_encodings", action="store_true", default=False
+    )
+    parser.add_argument("--filter_coeff", type=float, default=0.5)
     args = parser.parse_args()
 
     # local rank: the rank within the node
@@ -335,6 +339,7 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
+        add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         max_length=2048,
     )
@@ -346,6 +351,7 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
+        add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -416,12 +422,14 @@ def main():
     # start training
 
     saving_folder = f"{args.folder}_{args.lr}"
+    if args.add_positional_encodings:
+        saving_folder += "_pos"
     if args.random_permute:
         saving_folder += "_rand"
     if args.prefiltering:
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
-        saving_folder += "_coeff0.5"
+        saving_folder += f"_coeff{args.filter_coeff}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:

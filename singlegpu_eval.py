@@ -308,6 +308,9 @@ def main():
         default=False,
     )
     parser.add_argument("--filter_coeff", type=float, default=0.5)
+    parser.add_argument(
+        "--add_positional_encodings", action="store_true", default=False
+    )
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -338,6 +341,7 @@ def main():
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
+        add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -373,6 +377,8 @@ def main():
     del model.model.vision_tower
 
     saving_folder = f"{args.folder}_{args.lr}"
+    if args.add_positional_encodings:
+        saving_folder += f"_pos"
     if args.random_permute:
         saving_folder += "_rand"
     if args.prefiltering:

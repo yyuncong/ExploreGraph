@@ -192,23 +192,24 @@ def eval(dataloader, model, tokenizer, args):
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
-            print(
-                tokenizer.decode(
-                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
-                )
-            )
-            print(tokenizer.decode(filter_input_ids[0][filter_answer_indices[0] + 2 :]))
-            with torch.autocast(device_type="cuda"):
-                filter_outputs = model(
-                    input_ids=filter_input_ids,
-                    attention_mask=filter_attention_mask,
-                    labels=filter_labels,
-                    feature_dict=None,
-                    output_hidden_states=True,
-                )
-            filter_loss = filter_outputs.loss
-            total_filter_loss += filter_loss.item()
             total_sample += filter_input_ids.shape[0]
+            # # print(
+            # #     tokenizer.decode(
+            # #         filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+            # #     )
+            # # )
+            # # print(tokenizer.decode(filter_input_ids[0][filter_answer_indices[0] + 2 :]))
+            # with torch.autocast(device_type="cuda"):
+            #     filter_outputs = model(
+            #         input_ids=filter_input_ids,
+            #         attention_mask=filter_attention_mask,
+            #         labels=filter_labels,
+            #         feature_dict=None,
+            #         output_hidden_states=True,
+            #     )
+            # filter_loss = filter_outputs.loss
+            # total_filter_loss += filter_loss.item()
+            # total_sample += filter_input_ids.shape[0]
 
             # we need filter input_ids length here to get the answer
             filter_input_ids = sample.filter_input_ids.to("cuda")
@@ -219,9 +220,9 @@ def eval(dataloader, model, tokenizer, args):
             filter_answer_ids = filter_input_ids[
                 :, filter_answer_ind + 2 : filter_end_ind
             ]
-            print("filter answer (all)", filter_input_ids[:, filter_answer_ind + 2 :])
+            # print("filter answer (all)", filter_input_ids[:, filter_answer_ind + 2 :])
             filter_input_ids = filter_input_ids[:, : filter_answer_ind + 2]
-            print("filter answer", filter_answer_ids)
+            # print("filter answer", filter_answer_ids)
 
             with torch.inference_mode() and torch.autocast(device_type="cuda"):
                 filter_output_ids = model.generate(
@@ -229,7 +230,7 @@ def eval(dataloader, model, tokenizer, args):
                     feature_dict=None,
                     do_sample=False,
                     # allow for some long classes
-                    max_new_tokens=30,
+                    max_new_tokens=100,
                 )
             filter_outputs = (
                 tokenizer.decode(filter_output_ids[0, filter_input_ids.shape[1] :])
@@ -239,8 +240,8 @@ def eval(dataloader, model, tokenizer, args):
             filter_answer = (
                 tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
             )
-            print("the model output", filter_outputs)
-            print("decoded answer", filter_answer.replace("\n", "/"))
+            # print("the model output", filter_outputs)
+            # print("decoded answer", filter_answer.replace("\n", "/"))
             if filter_answer == "No object available":
                 ranking_empty_total += 1
                 if filter_answer == filter_outputs:
@@ -254,12 +255,12 @@ def eval(dataloader, model, tokenizer, args):
                 for i in range(min(len(filter_outputs), len(filter_answer))):
                     if filter_outputs[i] == filter_answer[i]:
                         ranking_match_correct += 1
-            print("splited filter output", filter_outputs)
-            print("splited filter answer", filter_answer)
+            # print("splited filter output", filter_outputs)
+            # print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
             selection_dict = sample.selection_dict[0]
-            print("the text before object \n", selection_dict.text_before_object)
-            print("the text after object \n", selection_dict.frontier_text)
+            # print("the text before object \n", selection_dict.text_before_object)
+            # print("the text after object \n", selection_dict.frontier_text)
             selection_sample = construct_selection_prompt(
                 tokenizer,
                 selection_dict.scene_token_id,
@@ -277,7 +278,7 @@ def eval(dataloader, model, tokenizer, args):
             )
             if isinstance(selection_sample, str):
                 # Three different types of string indicating different problems
-                print(selection_sample)
+                # print(selection_sample)
                 continue
             selection_sample = collate_selection_wrapper([selection_sample])
             feature_dict = EasyDict(
@@ -287,25 +288,25 @@ def eval(dataloader, model, tokenizer, args):
             )
             input_ids = selection_sample.input_ids.to("cuda")
             # test the output of construct_selection_prompt
-            print(
-                tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
-            )
+            # print(
+            #     tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
+            # )
             attention_mask = selection_sample.attention_mask.to("cuda")
             labels = input_ids.clone()
             answer_indices = torch.where(labels == 22550)[1]
             for j, answer_idx in enumerate(answer_indices):
                 labels[j, : answer_idx + 2] = -100
             labels[labels == tokenizer.pad_token_id] = -100
-            with torch.autocast(device_type="cuda"):
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    feature_dict=feature_dict,
-                    output_hidden_states=True,
-                )
-            selection_loss = outputs.loss
-            total_selection_loss += selection_loss.item()
+            # with torch.autocast(device_type="cuda"):
+            #     outputs = model(
+            #         input_ids=input_ids,
+            #         attention_mask=attention_mask,
+            #         labels=labels,
+            #         feature_dict=feature_dict,
+            #         output_hidden_states=True,
+            #     )
+            # selection_loss = outputs.loss
+            # total_selection_loss += selection_loss.item()
 
             input_ids = selection_sample.input_ids.to("cuda")
             answer_ind = torch.where(selection_sample.input_ids == 22550)[1][0].item()
@@ -324,9 +325,9 @@ def eval(dataloader, model, tokenizer, args):
                 .replace("</s>", "")
                 .strip()
             )
-            print("final selection result", outputs)
+            # print("final selection result", outputs)
             gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            print("ground truth", gt)
+            # print("ground truth", gt)
             gt_type = gt.split(" ")[0]
             gt_id = gt.split(" ")[1]
             outputs_type = outputs.split(" ")[0]
@@ -348,17 +349,17 @@ def eval(dataloader, model, tokenizer, args):
             if gt.lower().strip() == outputs.lower().strip():
                 correct += 1
 
-            pbar.set_description(f"acc: {correct / total}")
+            pbar.set_description(f"acc: {correct / total_sample}")
 
-    print("accuracy:", correct / total)
+    print("accuracy:", correct / total_sample)
     print("object type accuracy:", object_type_correct / object_gt_total)
     print("object id accuracy:", object_id_correct / object_gt_total)
     print("frontier type accuracy:", frontier_type_correct / frontier_gt_total)
     print("frontier id accuracy:", frontier_id_correct / frontier_gt_total)
     print("ranking empty accuracy:", ranking_empty_correct / ranking_empty_total)
     print("ranking match accuracy:", ranking_match_correct / ranking_match_total)
-    print("filter loss:", total_filter_loss / total_sample)
-    print("selection loss:", total_selection_loss / total_sample)
+    # print("filter loss:", total_filter_loss / total_sample)
+    # print("selection loss:", total_selection_loss / total_sample)
     print("frontiers total:", frontier_gt_total)
     print("objects total:", object_gt_total)
     print("ranking empty total:", ranking_empty_total)
@@ -434,6 +435,9 @@ def main():
         default=False,
     )
     parser.add_argument("--filter_coeff", type=float, default=0.5)
+    parser.add_argument(
+        "--add_positional_encodings", action="store_true", default=False
+    )
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -464,6 +468,7 @@ def main():
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
+        add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -489,7 +494,7 @@ def main():
         val_dataset,
         batch_size=1,
         pin_memory=True,
-        num_workers=1,
+        num_workers=4,
         collate_fn=val_total_dataset.collate_wrapper,
     )
 
@@ -500,7 +505,9 @@ def main():
 
     # saving_folder = f"{args.folder}_{args.lr}"
     # dummy input for run
-    saving_folder = os.path.join(args.ckpt_folder, f"{args.folder}_{args.lr}")
+    saving_folder = f"{args.folder}_{args.lr}"
+    if args.add_positional_encodings:
+        saving_folder += "_pos"
     if args.random_permute:
         saving_folder += "_rand"
     if args.prefiltering:

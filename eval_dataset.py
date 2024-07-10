@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from itertools import chain
 import random
 import numpy as np
+import math
 
 SCENE_TOKEN = "<scene>"
 # FRONTIER_TOKEN = "<frontier>"
@@ -24,6 +25,82 @@ GET_VISUAL_TOKEN = "<observe>"
 GET_TACTILE_TOKEN = "<touch>"
 GET_SOUND_TOKEN = "<tap>"
 SELECT_TOKEN = "<select>"
+
+
+def positionalencoding2d(d_model, height, width):
+    """
+    :param d_model: dimension of the model
+    :param height: height of the positions
+    :param width: width of the positions
+    :return: d_model*height*width position matrix
+    """
+    if d_model % 4 != 0:
+        raise ValueError(
+            "Cannot use sin/cos positional encoding with "
+            "odd dimension (got dim={:d})".format(d_model)
+        )
+    pe = torch.zeros(d_model, height, width)
+    # Each dimension use half of d_model
+    d_model = int(d_model / 2)
+    div_term = torch.exp(torch.arange(0.0, d_model, 2) * -(math.log(10000.0) / d_model))
+    pos_w = torch.arange(0.0, width).unsqueeze(1)
+    pos_h = torch.arange(0.0, height).unsqueeze(1)
+    pe[0:d_model:2, :, :] = (
+        torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+    )
+    pe[1:d_model:2, :, :] = (
+        torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+    )
+    pe[d_model::2, :, :] = (
+        torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
+    )
+    pe[d_model + 1 :: 2, :, :] = (
+        torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
+    )
+
+    return pe
+
+
+def discretize_coordinates(coords, num_bins=128, coord_range=(-10, 10)):
+    # Ensure coords is a torch tensor
+    if not isinstance(coords, torch.Tensor):
+        coords = torch.tensor(coords, dtype=torch.float32)
+
+    # Extract min and max values from the coord_range
+    min_val, max_val = coord_range
+
+    # Normalize coordinates to range [0, 1]
+    normalized_coords = (coords - min_val) / (max_val - min_val)
+
+    # Scale normalized coordinates to range [0, num_bins - 1]
+    scaled_coords = normalized_coords * (num_bins - 1)
+
+    # Round to get discrete bin indices and clamp to ensure within range
+    discretized_coords = torch.round(scaled_coords).long()
+    discretized_coords = torch.clamp(discretized_coords, 0, num_bins - 1)
+
+    return discretized_coords
+
+
+def sum_positional_encodings(x, pos, pe, num_bins=128, coord_range=(-10, 10)):
+    """
+    x: (num_points, d_model)
+    pos: (num_points, 2)
+    pe: (d_model, num_bins, num_bins)
+    """
+    # Discretize the coordinates
+    discretized_coords = discretize_coordinates(
+        pos, num_bins=num_bins, coord_range=coord_range
+    ).unsqueeze(0)
+    # Get the positional encodings for the coordinates
+    x_pe = (
+        pe[:, discretized_coords[:, :, 0], discretized_coords[:, :, 2]]
+        .permute(1, 2, 0)
+        .squeeze(0)
+    )
+    # Sum the positional encodings along the num_points dimension
+    x += x_pe
+    return x
 
 
 def pad_zero(x, length):
@@ -100,7 +177,7 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
     # print("filtering prompt", len(filter_text))
     # print(filter_text)
     # Jiachen TODO 7: output filter_input_ids/filter_attention_mask/filter_length for the filtering question
-    print("raw text of filter prompt:", filter_text)
+    # print("raw text of filter prompt:", filter_text)
     filter_text = tokenizer(
         filter_text,
         return_tensors="pt",
@@ -152,7 +229,7 @@ def prepare_object_input(
     else:
         object_features = torch.stack(object_features, dim=0)
     text += "/\n"
-    print("object prompt \n", text)
+    # print("object prompt \n", text)
     return text, object_features, object_prediction, object_index
 
 
@@ -214,7 +291,7 @@ def construct_selection_prompt(
     # format answer
     text += "Answer: "
     text += answer + tokenizer.eos_token
-    print("final selection prompt \n", text)
+    # print("final selection prompt \n", text)
     if max_length <= len(text):
         return "input too long"
 
@@ -284,14 +361,14 @@ class ExploreDataset(Dataset):
         action_memory=False,
         prefiltering=False,
         random_permute=False,
+        add_positional_encodings=False,
         # Jiachen TODO: add your parameter here
         top_k_categories=5,
         num_egocentric_views=5,
         split="train",
     ):
         # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
-        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged")
-        print(self.scene_dir)
+        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         # exploration_path = (
         #     "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
@@ -321,6 +398,12 @@ class ExploreDataset(Dataset):
         self.obj_not_found_indices = set({})
         self.too_many_objects_indices = set({})
         self.answer_obj_filtered_indices = set({})
+        self.bounds = (-7, 7)
+        self.num_bins = 128
+        self.positional_encoding = positionalencoding2d(
+            1024, self.num_bins, self.num_bins
+        )
+        self.add_positional_encodings = add_positional_encodings
 
     def load_step(self, step_path):
         with open(step_path, "r") as f:
@@ -332,6 +415,11 @@ class ExploreDataset(Dataset):
 
         # add paths for frontiers
         stepdata["frontier_features"] = {}
+        stepdata["position"] = np.array(stepdata["agent_state"]["init_pts"])[None,]
+        stepdata["frontier_positions"] = (
+            np.array([f["coordinate"] for f in stepdata["frontiers"]])
+            - stepdata["position"]
+        )
         frontier_folder = os.path.join(epi_path, "frontier_rgb")
         for frontier in stepdata["frontiers"]:
             # placeholder for loading frontier feature
@@ -456,6 +544,14 @@ class ExploreDataset(Dataset):
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
+        obj_positions_map = {
+            obj["id"]: (np.array(obj["bbox"][1]) + np.array(obj["bbox"][0])) / 2
+            for obj in obj_json
+        }
+        obj_positions_map = {
+            key: value[[0, 2, 1]] - step["position"]
+            for key, value in obj_positions_map.items()
+        }
 
         text_before_object = f"Question: {episode['question']}\n"
 
@@ -467,6 +563,22 @@ class ExploreDataset(Dataset):
             except:
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
+            if self.add_positional_encodings:
+                egocentric_positions = torch.cat(
+                    [
+                        torch.tensor(step["position"] - step["position"])
+                        for _ in range(egocentric_features.shape[0])
+                    ],
+                    dim=0,
+                )
+                egocentric_features = sum_positional_encodings(
+                    egocentric_features,
+                    egocentric_positions,
+                    self.positional_encoding,
+                    num_bins=self.num_bins,
+                    coord_range=self.bounds,
+                )
+
             text_before_object += egocentric_text
             feature_before_object.append(egocentric_features)
 
@@ -481,6 +593,7 @@ class ExploreDataset(Dataset):
         # Jiachen TODO 2: extract seen object categories at the same time
         prediction = np.array(step["prediction"])
         object_features, object_classes, keep_indices = [], [], []
+        object_positions = []
         object_index = 0
         class2object = defaultdict(list)
         for i, sid in enumerate(step["scene_graph"]):
@@ -492,10 +605,22 @@ class ExploreDataset(Dataset):
                     keep_indices.append(i)
                     object_classes.append(obj_map[str(sid)])
                     object_features.append(object_feature)
+                    object_positions.append(torch.tensor(obj_positions_map[str(sid)]))
                     class2object[obj_map[str(sid)]].append(object_index)
                     object_index += 1
                 except:
                     continue
+        if self.add_positional_encodings:
+            object_features = [
+                sum_positional_encodings(
+                    object_features[i].unsqueeze(0),
+                    object_positions[i],
+                    self.positional_encoding,
+                    num_bins=self.num_bins,
+                    coord_range=self.bounds,
+                ).squeeze(0)
+                for i in range(len(object_features))
+            ]
         # print("original indices:", keep_indices)
         # print("seen categories:", object_classes)
 
@@ -514,8 +639,8 @@ class ExploreDataset(Dataset):
         # This is the target ranking for prefiltering
         ranking = [cls for cls in ranking if cls in class2object.keys()]
         ranking = ranking[: self.top_k_categories]
-        print("the list of seen objects", list(class2object.keys()))
-        print(f"the top {self.top_k_categories} ranking of seen objects", ranking)
+        # print("the list of seen objects", list(class2object.keys()))
+        # print(f"the top {self.top_k_categories} ranking of seen objects", ranking)
         """
         object_text, object_features, object_prediction = prepare_object_input(
             class2object,
@@ -534,6 +659,15 @@ class ExploreDataset(Dataset):
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
         )
+        frontier_positions = torch.tensor(step["frontier_positions"])
+        if self.add_positional_encodings:
+            frontier_features = sum_positional_encodings(
+                frontier_features,
+                frontier_positions,
+                self.positional_encoding,
+                num_bins=self.num_bins,
+                coord_range=self.bounds,
+            )
         # print('frontier_text', frontier_text)
         if frontier_text is None:
             index = np.random.choice(self.indices)
@@ -582,53 +716,51 @@ class ExploreDataset(Dataset):
         input_dict.selection_dict = selection_dict
         return input_dict
 
-    """
-    def collate_wrapper(self, batch):
-        # because sos token is added, the max_length should be +1?
-        max_length = max(b.length for b in batch) + 1
-        max_scene_length = max(b.scene_feature.shape[0] for b in batch)
-        # max_frontier_length = max(b.frontier_feature.shape[0] for b in batch)
+    # def collate_wrapper(self, batch):
+    #     # because sos token is added, the max_length should be +1?
+    #     max_length = max(b.length for b in batch) + 1
+    #     max_scene_length = max(b.scene_feature.shape[0] for b in batch)
+    #     # max_frontier_length = max(b.frontier_feature.shape[0] for b in batch)
 
-        scene_feature = torch.zeros((len(batch), max_scene_length, 1024))
-        scene_insert_loc = torch.zeros((len(batch), max_scene_length))
+    #     scene_feature = torch.zeros((len(batch), max_scene_length, 1024))
+    #     scene_insert_loc = torch.zeros((len(batch), max_scene_length))
 
-        for j, b in enumerate(batch):
-            scene_feature[j, : b.scene_feature.shape[0]] = b.scene_feature
-            # frontier_feature[j, :b.frontier_feature.shape[0]] = b.frontier_feature
-            scene_insert_loc[j, : b.scene_insert_loc.shape[0]] = b.scene_insert_loc
+    #     for j, b in enumerate(batch):
+    #         scene_feature[j, : b.scene_feature.shape[0]] = b.scene_feature
+    #         # frontier_feature[j, :b.frontier_feature.shape[0]] = b.frontier_feature
+    #         scene_insert_loc[j, : b.scene_insert_loc.shape[0]] = b.scene_insert_loc
 
-        if self.prefiltering:
-            max_filter_length = max(b.filter_length for b in batch) + 1
-            return EasyDict(
-                input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
-                attention_mask=torch.cat([b.attention_mask for b in batch])[
-                    ..., :max_length
-                ],
-                scene_feature=scene_feature,
-                scene_insert_loc=scene_insert_loc.to(torch.long),
-                scene_length=torch.tensor([b.scene_length for b in batch]),
-                max_scene_length=torch.tensor(
-                    [b.scene_feature.shape[0] for b in batch]
-                ),
-                # Jiachen TODO 7
-                filter_input_ids=torch.cat([b.filter_input_ids for b in batch])[
-                    ..., :max_filter_length
-                ],
-                filter_attention_mask=torch.cat(
-                    [b.filter_attention_mask for b in batch]
-                )[..., :max_filter_length],
-            )
-        return EasyDict(
-            input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
-            attention_mask=torch.cat([b.attention_mask for b in batch])[
-                ..., :max_length
-            ],
-            scene_feature=scene_feature,
-            scene_insert_loc=scene_insert_loc.to(torch.long),
-            scene_length=torch.tensor([b.scene_length for b in batch]),
-            max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
-        )
-    """
+    #     if self.prefiltering:
+    #         max_filter_length = max(b.filter_length for b in batch) + 1
+    #         return EasyDict(
+    #             input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
+    #             attention_mask=torch.cat([b.attention_mask for b in batch])[
+    #                 ..., :max_length
+    #             ],
+    #             scene_feature=scene_feature,
+    #             scene_insert_loc=scene_insert_loc.to(torch.long),
+    #             scene_length=torch.tensor([b.scene_length for b in batch]),
+    #             max_scene_length=torch.tensor(
+    #                 [b.scene_feature.shape[0] for b in batch]
+    #             ),
+    #             # Jiachen TODO 7
+    #             filter_input_ids=torch.cat([b.filter_input_ids for b in batch])[
+    #                 ..., :max_filter_length
+    #             ],
+    #             filter_attention_mask=torch.cat(
+    #                 [b.filter_attention_mask for b in batch]
+    #             )[..., :max_filter_length],
+    #         )
+    #     return EasyDict(
+    #         input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
+    #         attention_mask=torch.cat([b.attention_mask for b in batch])[
+    #             ..., :max_length
+    #         ],
+    #         scene_feature=scene_feature,
+    #         scene_insert_loc=scene_insert_loc.to(torch.long),
+    #         scene_length=torch.tensor([b.scene_length for b in batch]),
+    #         max_scene_length=torch.tensor([b.scene_feature.shape[0] for b in batch]),
+    #     )
 
     def collate_wrapper(self, batch):
         # wrap up the prefiltering batch
@@ -654,7 +786,7 @@ class ExploreDataset(Dataset):
             i
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
-            and int(self.episodes[i]["scene"].split("-")[0]) < 800
+            and int(self.episodes[i]["scene"].split("-")[0]) < 730
         ]
         train_episode = [
             i

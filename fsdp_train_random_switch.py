@@ -294,6 +294,9 @@ def main():
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
     parser.add_argument("--filter_coeff", type=float, default=0.5)
+    parser.add_argument(
+        "--add_positional_encodings", action="store_true", default=False
+    )
     args = parser.parse_args()
 
     # local rank: the rank within the node
@@ -342,6 +345,7 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
+        add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         max_length=2048,
     )
@@ -353,6 +357,7 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
+        add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -423,6 +428,8 @@ def main():
     # start training
 
     saving_folder = f"{args.folder}_{args.lr}"
+    if args.add_positional_encodings:
+        saving_folder += "_pos"
     if args.random_permute:
         saving_folder += "_rand"
     if args.prefiltering:

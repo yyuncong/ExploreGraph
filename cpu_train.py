@@ -109,7 +109,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels[labels == tokenizer.pad_token_id] = -100
 
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
-        print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        # print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
         # print()
         # print(tokenizer.decode(labels[0][labels[0] != -100]))
 
@@ -139,11 +139,11 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
 
             # test output
-            print(
-                tokenizer.decode(
-                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
-                )
-            )
+            # print(
+            #     tokenizer.decode(
+            #         filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+            #     )
+            # )
             # print()
             # print(
             #     tokenizer.decode(
@@ -306,6 +306,9 @@ def main():
     # 2. How many object categories we are going to keep (5? 10? 20?)
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
+    parser.add_argument(
+        "--add_positional_encodings", action="store_true", default=False
+    )
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -340,6 +343,7 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
+        add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         max_length=2048,
     )

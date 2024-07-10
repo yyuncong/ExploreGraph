@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from itertools import chain
 import random
 import numpy as np
+import math
 
 SCENE_TOKEN = "<scene>"
 # FRONTIER_TOKEN = "<frontier>"
@@ -24,6 +25,82 @@ GET_VISUAL_TOKEN = "<observe>"
 GET_TACTILE_TOKEN = "<touch>"
 GET_SOUND_TOKEN = "<tap>"
 SELECT_TOKEN = "<select>"
+
+
+def positionalencoding2d(d_model, height, width):
+    """
+    :param d_model: dimension of the model
+    :param height: height of the positions
+    :param width: width of the positions
+    :return: d_model*height*width position matrix
+    """
+    if d_model % 4 != 0:
+        raise ValueError(
+            "Cannot use sin/cos positional encoding with "
+            "odd dimension (got dim={:d})".format(d_model)
+        )
+    pe = torch.zeros(d_model, height, width)
+    # Each dimension use half of d_model
+    d_model = int(d_model / 2)
+    div_term = torch.exp(torch.arange(0.0, d_model, 2) * -(math.log(10000.0) / d_model))
+    pos_w = torch.arange(0.0, width).unsqueeze(1)
+    pos_h = torch.arange(0.0, height).unsqueeze(1)
+    pe[0:d_model:2, :, :] = (
+        torch.sin(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+    )
+    pe[1:d_model:2, :, :] = (
+        torch.cos(pos_w * div_term).transpose(0, 1).unsqueeze(1).repeat(1, height, 1)
+    )
+    pe[d_model::2, :, :] = (
+        torch.sin(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
+    )
+    pe[d_model + 1 :: 2, :, :] = (
+        torch.cos(pos_h * div_term).transpose(0, 1).unsqueeze(2).repeat(1, 1, width)
+    )
+
+    return pe
+
+
+def discretize_coordinates(coords, num_bins=128, coord_range=(-10, 10)):
+    # Ensure coords is a torch tensor
+    if not isinstance(coords, torch.Tensor):
+        coords = torch.tensor(coords, dtype=torch.float32)
+
+    # Extract min and max values from the coord_range
+    min_val, max_val = coord_range
+
+    # Normalize coordinates to range [0, 1]
+    normalized_coords = (coords - min_val) / (max_val - min_val)
+
+    # Scale normalized coordinates to range [0, num_bins - 1]
+    scaled_coords = normalized_coords * (num_bins - 1)
+
+    # Round to get discrete bin indices and clamp to ensure within range
+    discretized_coords = torch.round(scaled_coords).long()
+    discretized_coords = torch.clamp(discretized_coords, 0, num_bins - 1)
+
+    return discretized_coords
+
+
+def sum_positional_encodings(x, pos, pe, num_bins=128, coord_range=(-10, 10)):
+    """
+    x: (num_points, d_model)
+    pos: (num_points, 2)
+    pe: (d_model, num_bins, num_bins)
+    """
+    # Discretize the coordinates
+    discretized_coords = discretize_coordinates(
+        pos, num_bins=num_bins, coord_range=coord_range
+    ).unsqueeze(0)
+    # Get the positional encodings for the coordinates
+    x_pe = (
+        pe[:, discretized_coords[:, :, 0], discretized_coords[:, :, 2]]
+        .permute(1, 2, 0)
+        .squeeze(0)
+    )
+    # Sum the positional encodings along the num_points dimension
+    x += x_pe
+    return x
 
 
 def pad_zero(x, length):
@@ -127,14 +204,15 @@ class ExploreDataset(Dataset):
         action_memory=False,
         prefiltering=False,
         random_permute=False,
+        add_positional_encodings=False,
         # Jiachen TODO: add your parameter here
         top_k_categories=5,
         num_egocentric_views=5,
         split="train",
     ):
         # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
-        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged")
-        print(self.scene_dir)
+        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
+        # print(self.scene_dir)
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         # exploration_path = (
         #     "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
@@ -164,6 +242,12 @@ class ExploreDataset(Dataset):
         self.obj_not_found_indices = set({})
         self.too_many_objects_indices = set({})
         self.answer_obj_filtered_indices = set({})
+        self.bounds = (-7, 7)
+        self.num_bins = 128
+        self.positional_encoding = positionalencoding2d(
+            1024, self.num_bins, self.num_bins
+        )
+        self.add_positional_encodings = add_positional_encodings
 
     def load_step(self, step_path):
         with open(step_path, "r") as f:
@@ -175,6 +259,11 @@ class ExploreDataset(Dataset):
 
         # add paths for frontiers
         stepdata["frontier_features"] = {}
+        stepdata["position"] = np.array(stepdata["agent_state"]["init_pts"])[None,]
+        stepdata["frontier_positions"] = (
+            np.array([f["coordinate"] for f in stepdata["frontiers"]])
+            - stepdata["position"]
+        )
         frontier_folder = os.path.join(epi_path, "frontier_rgb")
         for frontier in stepdata["frontiers"]:
             # placeholder for loading frontier feature
@@ -258,98 +347,6 @@ class ExploreDataset(Dataset):
 
         return data
 
-    # def load_data(self):
-
-    #     # Jiachen TODO: load your "question/scene to ranking json" here
-    #     with open(self.ranking_path, "r") as f:
-    #         self.candidate_rankings = json.load(f)
-    #     # load scene feature into dict
-    #     self.scenes = {}
-    #     for scene in os.listdir(self.scene_dir):
-    #         self.scenes[scene] = {}
-    #         scene_fold = os.path.join(self.scene_dir, scene)
-    #         # need to confirm: if object in different scene should have different features
-    #         for object_f in os.listdir(scene_fold):
-    #             object_id = object_f[:-3]
-    #             try:
-    #                 # object_feature  = torch.load(os.path.join(scene_fold, object_f),
-    #                 #                             map_location = 'cpu')
-    #                 # self.scenes[scene][object_id] = object_feature
-    #                 self.scenes[scene][object_id] = os.path.join(scene_fold, object_f)
-    #             except:
-    #                 continue
-
-    #     self.obj_json_map = {}
-    #     for obj_json in os.listdir(self.obj_bbox_dir):
-    #         scene_id = obj_json.split(".")[0]
-    #         self.obj_json_map[scene_id] = os.path.join(self.obj_bbox_dir, obj_json)
-
-    #     # load episode data: metadata is managed with self.episodes
-    #     # TODO later: Remove num skipped to improve error handling
-    #     self.episodes = []
-    #     data = []
-    #     num_skipped = 0
-    #     for i, episode in enumerate(os.listdir(self.explore_dir)):
-    #         i -= num_skipped
-    #         epi_path = os.path.join(self.explore_dir, episode)
-    #         # load metadata
-    #         try:
-    #             with open(os.path.join(epi_path, "metadata.json"), "r") as f:
-    #                 metadata = json.load(f)
-    #         except:
-    #             num_skipped += 1
-    #             continue
-    #         self.episodes.append(metadata)
-
-    #         # load step data
-    #         steps_data = []
-    #         for step in range(metadata["episode_length"]):
-    #             with open(os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")) as f:
-    #                 stepdata = json.load(f)
-    #             # link each step to its episode
-    #             stepdata["episode_id"] = i
-    #             stepdata["target_obj_class"] = metadata["target_obj_class"]
-
-    #             # add paths for frontiers
-    #             frontier_features = []
-    #             stepdata["frontier_features"] = {}
-    #             frontier_folder = os.path.join(epi_path, "frontier_rgb")
-    #             for frontier in stepdata["frontiers"]:
-    #                 # placeholder for loading frontier feature
-    #                 rgb_id = frontier["rgb_id"]
-    #                 # load frontier feature
-    #                 # feature = torch.load(os.path.join(frontier_folder, rgb_id.replace(".png", ".pt")),
-    #                 #                         map_location = 'cpu')
-    #                 feature = os.path.join(
-    #                     frontier_folder, rgb_id.replace(".png", ".pt")
-    #                 )
-    #                 # feature = torch.zeros(1024)
-    #                 stepdata["frontier_features"][rgb_id] = feature
-    #                 # front['rgb_id'] = os.path.join(epi_path,'frontier_rgb',front['rgb_id'])
-    #             # remove frontier info, can be removed in case other features needed
-    #             # del stepdata['frontiers']
-    #             if stepdata["previous_choice"] is not None:
-    #                 stepdata["previous_choice"] = os.path.join(
-    #                     frontier_folder,
-    #                     stepdata["previous_choice"].replace(".png", ".pt"),
-    #                 )
-
-    #             stepdata["egocentric_features"] = {}
-    #             for view_idx in range(self.num_egocentric_views):
-    #                 egocentric_view_folder = os.path.join(epi_path, f"egocentric")
-    #                 featrue = os.path.join(
-    #                     egocentric_view_folder, f"{i}_view_{view_idx}.pt"
-    #                 )
-    #                 stepdata["egocentric_features"][view_idx] = featrue
-    #             steps_data.append(stepdata)
-    #         data.extend(steps_data)
-
-    #     # link steps to episodes, which can be used for dataset split
-    #     self.episode2step = defaultdict(list)
-    #     for i in range(len(data)):
-    #         self.episode2step[data[i]["episode_id"]].append(i)
-    #     return data
-
     def __len__(self):
         return len(self.data)
 
@@ -384,10 +381,19 @@ class ExploreDataset(Dataset):
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         # collections of features from egocentric view/action memory/scene graph/frontiers
         multi_src_features = []
+        # multi_src_positions = []
 
         with open(self.obj_json_map[episode["scene"]]) as f:
             obj_json = json.load(f)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
+        obj_positions_map = {
+            obj["id"]: (np.array(obj["bbox"][1]) + np.array(obj["bbox"][0])) / 2
+            for obj in obj_json
+        }
+        obj_positions_map = {
+            key: value[[0, 2, 1]] - step["position"]
+            for key, value in obj_positions_map.items()
+        }
 
         text = f"Question: {episode['question']}\n"
 
@@ -400,12 +406,33 @@ class ExploreDataset(Dataset):
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
             text += egocentric_text
+            if self.add_positional_encodings:
+                egocentric_positions = torch.cat(
+                    [
+                        torch.tensor(step["position"] - step["position"])
+                        for _ in range(egocentric_features.shape[0])
+                    ],
+                    dim=0,
+                )
+                egocentric_features = sum_positional_encodings(
+                    egocentric_features,
+                    egocentric_positions,
+                    self.positional_encoding,
+                    num_bins=self.num_bins,
+                    coord_range=self.bounds,
+                )
             multi_src_features.append(egocentric_features)
 
         text += f"Select the frontier/object that would help finding the answer of the question.\n"
 
         if self.action_memory:
-            memory_text, memory_feature = prepare_action_memory(step["previous_choice"])
+            try:
+                memory_text, memory_feature = prepare_action_memory(
+                    step["previous_choice"]
+                )
+            except:
+                index = np.random.choice(self.indices)
+                return self.__getitem__(index)
             text += memory_text
             multi_src_features.append(memory_feature)
 
@@ -413,6 +440,7 @@ class ExploreDataset(Dataset):
         # Jiachen TODO 2: extract seen object categories at the same time
         prediction = np.array(step["prediction"])
         object_features, object_classes, keep_indices = [], [], []
+        object_positions = []
         object_index = 0
         class2object = defaultdict(list)
         for i, sid in enumerate(step["scene_graph"]):
@@ -424,10 +452,22 @@ class ExploreDataset(Dataset):
                     keep_indices.append(i)
                     object_classes.append(obj_map[str(sid)])
                     object_features.append(object_feature)
+                    object_positions.append(torch.tensor(obj_positions_map[str(sid)]))
                     class2object[obj_map[str(sid)]].append(object_index)
                     object_index += 1
                 except:
                     continue
+        if self.add_positional_encodings:
+            object_features = [
+                sum_positional_encodings(
+                    object_features[i].unsqueeze(0),
+                    object_positions[i],
+                    self.positional_encoding,
+                    num_bins=self.num_bins,
+                    coord_range=self.bounds,
+                ).squeeze(0)
+                for i in range(len(object_features))
+            ]
         # print("original indices:", keep_indices)
         # print("seen categories:", object_classes)
 
@@ -478,6 +518,7 @@ class ExploreDataset(Dataset):
             keep_indices = [keep_indices[r_idx] for r_idx in random_object_index]
             object_classes = [object_classes[r_idx] for r_idx in random_object_index]
             object_features = [object_features[r_idx] for r_idx in random_object_index]
+            # object_positions = [object_positions[r_idx] for r_idx in random_object_index]
             # print('indices after shuffle', keep_indices)
             # print('classes after shuffle', object_classes)
 
@@ -491,8 +532,11 @@ class ExploreDataset(Dataset):
             object_features = None
         else:
             object_features = torch.stack(object_features, dim=0)
+            # object_positions = torch.cat(object_positions, dim=0)
             # add object features
             multi_src_features.append(object_features)
+            # multi_src_positions.append(object_positions)
+
         text += "/\n"
 
         """
@@ -528,6 +572,18 @@ class ExploreDataset(Dataset):
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
         )
+        if self.add_positional_encodings:
+            frontier_positions = torch.tensor(
+                [step["frontier_positions"][idx] for idx in frontier_index]
+            )
+            frontier_features = sum_positional_encodings(
+                frontier_features,
+                frontier_positions,
+                self.positional_encoding,
+                num_bins=self.num_bins,
+                coord_range=self.bounds,
+            )
+
         # print('frontier_text', frontier_text)
         if frontier_text is None:
             index = np.random.choice(self.indices)
@@ -707,7 +763,7 @@ class ExploreDataset(Dataset):
             i
             for i in range(len(self.episodes))
             if int(self.episodes[i]["scene"].split("-")[0]) > 700
-            and int(self.episodes[i]["scene"].split("-")[0]) < 800
+            and int(self.episodes[i]["scene"].split("-")[0]) < 730
         ]
         train_episode = [
             i
