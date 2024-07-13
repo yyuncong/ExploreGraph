@@ -396,7 +396,9 @@ class ExploreDataset(Dataset):
         snapshot_index = 0
 
         # prefiltering TODO
-        class2object = defaultdict(list)
+        # use seen objects set to replace class2object
+        #class2object = defaultdict(list)
+        seen_objects = set()
         for i, rgb_id in enumerate(step["snapshot_features"].keys()):
             # No need to filter here (both scene_graph and snapshots objects from the json files)
             try:
@@ -404,8 +406,11 @@ class ExploreDataset(Dataset):
                 snapshot_feature = torch.load(
                     step["snapshot_features"][rgb_id], map_location="cpu"
                 )
+                snapshot_class = [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
+                seen_objects.update(snapshot_class)
                 snapshot_classes.append(
-                    [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
+                    #[obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
+                    snapshot_class
                 )
                 snapshot_features.append(snapshot_feature)
                 snapshot_positions.append(
@@ -450,20 +455,47 @@ class ExploreDataset(Dataset):
 
         # prefiltering TODO
         if self.prefiltering:
-            ranking = [cls for cls in ranking if cls in class2object.keys()]
+            # compute the intersection of ranking and class2object
+            '''
+            print(episode["question"])
+            print(seen_objects)
+            print(ranking)
+            '''
+            ranking = [cls for cls in ranking if cls in seen_objects]
             ranking = ranking[: self.top_k_categories]
+            # 1. unlike objects, we can not directly order snapshots based on ranking, so
+            # we simply filter out useless snapshots without reordering
+            # keep snapshots that have at least one object in the ranking
+            '''
+            print(f'top{self.top_k_categories} ranking', ranking)
+            print("raw keep indices", keep_indices)
+            print("raw snapshot classes", snapshot_classes)
+            '''
+            ranking_set = set(ranking)
+            snap_indices = [
+                snap_idx
+                for snap_idx in range(snapshot_index)
+                if len(set(snapshot_classes[snap_idx]) & ranking_set) > 0
+            ]
             keep_indices = [
-                keep_indices[obj_idx]
-                for cls in ranking
-                for obj_idx in class2object[cls]
+                keep_indices[snap_idx]
+                for snap_idx in snap_indices
             ]
-            object_classes = [cls for cls in ranking for _ in class2object[cls]]
-            object_features = [
-                object_features[obj_idx]
-                for cls in ranking
-                for obj_idx in class2object[cls]
+            snapshot_classes = [
+                snapshot_classes[snap_idx]
+                for snap_idx in snap_indices
             ]
-            object_index = len(keep_indices)
+            snapshot_features = [
+                snapshot_features[snap_idx]
+                for snap_idx in snap_indices
+            ]
+            snapshot_index = len(keep_indices)
+            # debugging prompt
+            '''
+            print("filtered snapshot index", snap_indices)
+            print("filtered keep indices", keep_indices)
+            print("filtered snapshot classes", snapshot_classes)
+            '''
 
         if shuffle:
             # shuffle the index if random_permute is True otherwise keep the original order
@@ -485,7 +517,7 @@ class ExploreDataset(Dataset):
                 text += f"{class_name} "
 
         if snapshot_index == 0:
-            text += f"No object available "
+            text += f"No snapshot available "
             # construct zero scene feature if all snapshots are missed
             snapshot_features = None
         else:
@@ -534,9 +566,10 @@ class ExploreDataset(Dataset):
         prediction = torch.tensor(prediction)
 
         # prefiltering TODO: the assert might not be valid after prefiltering
-        assert prediction.shape[0] == len(step["snapshot_features"]) + len(
-            step["frontiers"]
-        )
+        # checked: only keep the second assertion
+        # assert prediction.shape[0] == len(step["snapshot_features"]) + len(
+        #    step["frontiers"]
+        # )
         assert prediction.shape[0] == snapshot_index + len(step["frontiers"])
 
         if not np.where(prediction == 1.0)[0].shape[0] == 1:
@@ -604,7 +637,7 @@ class ExploreDataset(Dataset):
         )
         # add prompt input for prefiltering
         if self.prefiltering:
-            classes = list(class2object.keys())
+            classes = list(seen_objects)
             if shuffle:
                 np.random.shuffle(classes)
             (

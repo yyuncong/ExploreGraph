@@ -139,17 +139,19 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
 
             # test output
-            # print(
-            #     tokenizer.decode(
-            #         filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
-            #     )
-            # )
-            # print()
-            # print(
-            #     tokenizer.decode(
-            #         filter_labels[0][filter_labels[0] != -100]
-            #     )
-            # )
+            """
+            print(
+                tokenizer.decode(
+                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+                )
+            )
+            print()
+            print(
+                tokenizer.decode(
+                    filter_labels[0][filter_labels[0] != -100]
+                )
+            )
+            """
 
             filter_outputs = llava_model(
                 input_ids=filter_input_ids,
