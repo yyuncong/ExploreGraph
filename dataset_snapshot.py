@@ -374,7 +374,7 @@ class ExploreDataset(Dataset):
                 )
             multi_src_features.append(egocentric_features)
 
-        text += f"Select the frontier/object that would help finding the answer of the question.\n"
+        text += f"Select the frontier/snapshot that would help finding the answer of the question.\n"
 
         if self.action_memory:
             try:
