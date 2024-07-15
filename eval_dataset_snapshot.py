@@ -193,7 +193,7 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
 
 # format object input after generating prefiltering result
 def prepare_snapshot_input(
-    seen_objects,
+    seen_classes,
     snapshot_prediction,
     snapshot_classes,
     snapshot_features,
@@ -206,7 +206,8 @@ def prepare_snapshot_input(
     # revise object processing
     snapshot_index = len(snapshot_classes)
     if prefiltering:
-        ranking = [cls for cls in ranking if cls in seen_objects]
+        #print("seen objects", seen_classes)
+        ranking = [cls for cls in ranking if cls in seen_classes]
         ranking = ranking[:topk]
         ranking_set = set(ranking)
         snap_indices = [
@@ -214,6 +215,9 @@ def prepare_snapshot_input(
             for snap_idx in range(snapshot_index)
             if len(set(snapshot_classes[snap_idx]) & ranking_set) > 0
         ]
+        #print("raw prediction", snapshot_prediction)
+        #print("raw classes", snapshot_classes)
+        #print("filtered indices", snap_indices)
         snapshot_prediction = [
             snapshot_prediction[snap_idx]
             for snap_idx in snap_indices
@@ -226,6 +230,8 @@ def prepare_snapshot_input(
             snapshot_features[snap_idx]
             for snap_idx in snap_indices
         ]
+        #print("filtered prediction", snapshot_prediction)
+        #print("filtered classes", snapshot_classes)
         snapshot_index = len(snap_indices)
 
     text = "These are the snapshots:\n"
@@ -581,7 +587,7 @@ class ExploreDataset(Dataset):
             text_before_snapshot += egocentric_text
             feature_before_snapshot.append(egocentric_features)
 
-        text_before_snapshot += f"Select the frontier/object that would help finding the answer of the question.\n"
+        text_before_snapshot += f"Select the frontier/snapshot that would help finding the answer of the question.\n"
 
         if self.action_memory:
             memory_text, memory_feature = prepare_action_memory(step["previous_choice"])
@@ -634,8 +640,6 @@ class ExploreDataset(Dataset):
                 ).squeeze(0)
                 for i in range(len(snapshot_features))
             ]
-        # print("original indices:", keep_indices)
-        # print("seen categories:", object_classes)
 
         # Data Problem
         snapshot_prediction = prediction[keep_indices]

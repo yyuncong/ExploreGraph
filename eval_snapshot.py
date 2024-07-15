@@ -242,10 +242,10 @@ def eval(dataloader, model, tokenizer, args):
             filter_answer = (
                 tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
             )
-            '''
-            print("the model output", filter_outputs)
-            print("decoded answer", filter_answer.replace("\n", "/"))
-            '''
+            
+            #print("the model output", filter_outputs)
+            #print("decoded answer", filter_answer.replace("\n", "/"))
+            
             if filter_answer == "No object available":
                 ranking_empty_total += 1
                 if filter_answer == filter_outputs:
@@ -263,8 +263,6 @@ def eval(dataloader, model, tokenizer, args):
             #print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
             selection_dict = sample.selection_dict[0]
-            # print("the text before object \n", selection_dict.text_before_object)
-            # print("the text after object \n", selection_dict.frontier_text)
             selection_sample = construct_selection_prompt(
                 tokenizer,
                 selection_dict.scene_token_id,
@@ -298,6 +296,10 @@ def eval(dataloader, model, tokenizer, args):
                 tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
             )
             '''
+            length = torch.nonzero(input_ids).shape[0]
+            decode_result = tokenizer.decode(input_ids[0][0: length])
+            if '<unk>' in decode_result:
+                print('unknow problem in tokenizer!')
             attention_mask = selection_sample.attention_mask.to("cuda")
             labels = input_ids.clone()
             answer_indices = torch.where(labels == 22550)[1]

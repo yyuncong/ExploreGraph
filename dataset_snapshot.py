@@ -628,6 +628,9 @@ class ExploreDataset(Dataset):
         )
         input_ids = text["input_ids"]
         length = torch.nonzero(input_ids).shape[0]
+        decode_result = self.tokenizer.decode(input_ids[0][0: length])
+        if '<unk>' in decode_result:
+            print('unknow problem in tokenizer!')
 
         attention_mask = text["attention_mask"]
 

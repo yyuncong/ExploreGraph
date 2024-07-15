@@ -168,3 +168,4 @@ cython_debug/
 # other py files
 test.py
 unit_test.py
+outputs/
