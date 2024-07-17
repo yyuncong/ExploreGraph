@@ -242,10 +242,12 @@ def prepare_snapshot_input(
 
     text = "These are the snapshots:\n"
     for i, class_names in enumerate(snapshot_classes):
-        text += f"snapshot {i} <scene> "
-        #class_names_set = set(class_names)
-        for class_name in class_names:
+        class_names_set = set(class_names)
+        class_names_list = list(class_names_set)
+        sorted_class_names = sorted(class_names_list)
+        for class_name in sorted_class_names:
             text += f"{class_name}, "
+        text += "<scene> "
         
 
     if snapshot_index == 0:
