@@ -242,6 +242,7 @@ def prepare_snapshot_input(
 
     text = "These are the snapshots:\n"
     for i, class_names in enumerate(snapshot_classes):
+        text += f"snapshot {i} "
         class_names_set = set(class_names)
         class_names_list = list(class_names_set)
         sorted_class_names = sorted(class_names_list)
