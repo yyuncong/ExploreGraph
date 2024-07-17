@@ -484,6 +484,13 @@ class ExploreDataset(Dataset):
                 snapshot_classes[snap_idx]
                 for snap_idx in snap_indices
             ]
+            # further filter out the useless objects (objects not in ranking) in each snapshot
+            #print('before inner snapshot filtering', snapshot_classes)
+            snapshot_classes = [
+                [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set] 
+                for snap_cls in snapshot_classes
+            ]
+            #print('after inner snapshot filtering', snapshot_classes)
             snapshot_features = [
                 snapshot_features[snap_idx]
                 for snap_idx in snap_indices
@@ -519,8 +526,9 @@ class ExploreDataset(Dataset):
         text += "These are the snapshots:\n"
         for i, class_names in enumerate(snapshot_classes):
             text += f"snapshot {i} <scene> "
-            class_names_set = set(class_names)
-            for class_name in class_names_set:
+            # this will randomly order the object, which would influence evaluation
+            #class_names_set = set(class_names)
+            for class_name in class_names:
                 text += f"{class_name}, "
 
         if snapshot_index == 0:

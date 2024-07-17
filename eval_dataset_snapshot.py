@@ -226,6 +226,12 @@ def prepare_snapshot_input(
             snapshot_classes[snap_idx]
             for snap_idx in snap_indices
         ]
+        #print('before inner snapshot filtering', snapshot_classes)
+        snapshot_classes = [
+                [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set] 
+                for snap_cls in snapshot_classes
+        ]
+        #print('after inner snapshot filtering', snapshot_classes)
         snapshot_features = [
             snapshot_features[snap_idx]
             for snap_idx in snap_indices
@@ -237,8 +243,8 @@ def prepare_snapshot_input(
     text = "These are the snapshots:\n"
     for i, class_names in enumerate(snapshot_classes):
         text += f"snapshot {i} <scene> "
-        class_names_set = set(class_names)
-        for class_name in class_names_set:
+        #class_names_set = set(class_names)
+        for class_name in class_names:
             text += f"{class_name}, "
         
 

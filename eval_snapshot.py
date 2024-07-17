@@ -296,6 +296,7 @@ def eval(dataloader, model, tokenizer, args):
                 tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
             )
             '''
+            
             length = torch.nonzero(input_ids).shape[0]
             decode_result = tokenizer.decode(input_ids[0][0: length])
             if '<unk>' in decode_result:
@@ -457,6 +458,7 @@ def main():
 
     model_path = "liuhaotian/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
+    print(model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         model_path, None, model_name, device_map=None, add_multisensory_token=True
