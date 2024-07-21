@@ -149,12 +149,12 @@ def prepare_frontier(feature_path, frontier_info):
                 frontier_features.append(
                     torch.load(feature_path[info["rgb_id"]], map_location="cpu")
                 )
-                text += f"frontier {i} <scene> "
+                text += f"frontier {i} <scene> / "
             frontier_features = torch.cat(frontier_features, dim=0)
         else:
             text += f"No frontier available "
             frontier_features = None
-        text += "/\n"
+        text += "\n"
         return text, frontier_features
     except:
         return None, None
@@ -206,7 +206,7 @@ def prepare_snapshot_input(
     # revise object processing
     snapshot_index = len(snapshot_classes)
     if prefiltering:
-        #print("seen objects", seen_classes)
+        # print("seen objects", seen_classes)
         ranking = [cls for cls in ranking if cls in seen_classes]
         ranking = ranking[:topk]
         ranking_set = set(ranking)
@@ -215,40 +215,33 @@ def prepare_snapshot_input(
             for snap_idx in range(snapshot_index)
             if len(set(snapshot_classes[snap_idx]) & ranking_set) > 0
         ]
-        #print("raw prediction", snapshot_prediction)
-        #print("raw classes", snapshot_classes)
-        #print("filtered indices", snap_indices)
+        # print("raw prediction", snapshot_prediction)
+        # print("raw classes", snapshot_classes)
+        # print("filtered indices", snap_indices)
         snapshot_prediction = [
-            snapshot_prediction[snap_idx]
-            for snap_idx in snap_indices
+            snapshot_prediction[snap_idx] for snap_idx in snap_indices
         ]
+        snapshot_classes = [snapshot_classes[snap_idx] for snap_idx in snap_indices]
+        # print('before inner snapshot filtering', snapshot_classes)
         snapshot_classes = [
-            snapshot_classes[snap_idx]
-            for snap_idx in snap_indices
+            [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set]
+            for snap_cls in snapshot_classes
         ]
-        #print('before inner snapshot filtering', snapshot_classes)
-        snapshot_classes = [
-                [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set] 
-                for snap_cls in snapshot_classes
-        ]
-        #print('after inner snapshot filtering', snapshot_classes)
-        snapshot_features = [
-            snapshot_features[snap_idx]
-            for snap_idx in snap_indices
-        ]
-        #print("filtered prediction", snapshot_prediction)
-        #print("filtered classes", snapshot_classes)
+        # print('after inner snapshot filtering', snapshot_classes)
+        snapshot_features = [snapshot_features[snap_idx] for snap_idx in snap_indices]
+        # print("filtered prediction", snapshot_prediction)
+        # print("filtered classes", snapshot_classes)
         snapshot_index = len(snap_indices)
 
     text = "These are the snapshots:\n"
     for i, class_names in enumerate(snapshot_classes):
+        text += f"snapshot {i} "
         class_names_set = set(class_names)
         class_names_list = list(class_names_set)
         sorted_class_names = sorted(class_names_list)
         for class_name in sorted_class_names:
             text += f"{class_name}, "
-        text += "<scene> "
-        
+        text += "<scene> / "
 
     if snapshot_index == 0:
         text += f"No snapshot available "
@@ -256,7 +249,7 @@ def prepare_snapshot_input(
         snapshot_features = None
     else:
         snapshot_features = torch.cat(snapshot_features, dim=0)
-    text += "/\n"
+    text += "\n"
     # print("object prompt \n", text)
     return text, snapshot_features, snapshot_prediction, snapshot_index
 
@@ -452,7 +445,7 @@ class ExploreDataset(Dataset):
             rgb_id = frontier["rgb_id"]
             feature = os.path.join(frontier_folder, rgb_id.replace(".png", ".pt"))
             stepdata["frontier_features"][rgb_id] = feature
-        
+
         stepdata["snapshot_features"] = {}
         stepdata["snapshot_objects"] = {}
         snapshot_folder = os.path.join(epi_path, "object_features")
@@ -462,13 +455,13 @@ class ExploreDataset(Dataset):
             stepdata["snapshot_features"][rgb_id] = feature
             object_ids = snapshot["obj_ids"]
             stepdata["snapshot_objects"][rgb_id] = object_ids
-            
+
         if stepdata["previous_choice"] is not None:
             stepdata["previous_choice"] = os.path.join(
                 frontier_folder,
                 stepdata["previous_choice"].replace(".png", ".pt"),
             )
-            
+
         stepdata["egocentric_features"] = {}
         for view_idx in range(self.num_egocentric_views):
             egocentric_view_folder = os.path.join(epi_path, f"egocentric")
@@ -483,7 +476,7 @@ class ExploreDataset(Dataset):
         # load scene feature into dict
         with open(self.ranking_path, "r") as f:
             self.candidate_rankings = json.load(f)
-    
+
         self.obj_json_map = {}
         for obj_json in os.listdir(self.obj_bbox_dir):
             scene_id = obj_json.split(".")[0]
@@ -539,11 +532,11 @@ class ExploreDataset(Dataset):
         step_path, episode_id = self.data[idx]
         try:
             step = self.load_step(step_path)
-        
+
         except:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        
+
         episode = self.episodes[episode_id]
         # shuffle = self.random_permute and (self.split == "train")
         # Jiachen TODO 1: load ranking
@@ -565,7 +558,7 @@ class ExploreDataset(Dataset):
             key: value[[0, 2, 1]] - step["position"]
             for key, value in obj_positions_map.items()
         }
-        #print('Successfully loaded basic files!')
+        # print('Successfully loaded basic files!')
         text_before_snapshot = f"Question: {episode['question']}\n"
 
         if self.egocentric_views:
@@ -610,15 +603,17 @@ class ExploreDataset(Dataset):
         snapshot_index = 0
         seen_classes = set()
         for i, rgb_id in enumerate(step["snapshot_features"]):
-            try: 
+            try:
                 keep_indices.append(i)
                 snapshot_feature = torch.load(
                     step["snapshot_features"][rgb_id], map_location="cpu"
                 )
-                snapshot_class = [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
+                snapshot_class = [
+                    obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]
+                ]
                 seen_classes.update(snapshot_class)
                 snapshot_classes.append(
-                    #[obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
+                    # [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
                     snapshot_class
                 )
                 snapshot_features.append(snapshot_feature)
@@ -692,7 +687,7 @@ class ExploreDataset(Dataset):
                 num_bins=self.num_bins,
                 coord_range=self.bounds,
             )
-        #print('frontier_text', frontier_text)
+        # print('frontier_text', frontier_text)
         if frontier_text is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
@@ -807,13 +802,13 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 700
-            and int(self.episodes[i]["scene"].split("-")[0]) < 730
+            if int(self.episodes[i]["scene"].split("-")[0]) > 850
+            and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) <= 700
+            if int(self.episodes[i]["scene"].split("-")[0]) < 800
         ]
         # print("test episode", test_episode)
         train_index, test_index = [], []

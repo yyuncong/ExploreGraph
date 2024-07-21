@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset import ExploreDataset
+from dataset_test import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -222,7 +222,7 @@ def eval(dataloader, model, tokenizer, args):
             gt_id = gt.split(" ")[1]
             outputs_type = outputs.split(" ")[0]
             outputs_id = outputs.split(" ")[1]
-            if gt_type == "object":
+            if gt_type == "snapshot":
                 object_gt_total += 1
                 if gt_type == outputs_type:
                     object_type_correct += 1
@@ -319,7 +319,7 @@ def main():
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
 
-    model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(

@@ -62,7 +62,7 @@ import torch.nn.functional as F
 
 
 def load_checkpoint(model, args, name="checkpoint.pt"):
-    checkpoint_path = os.path.join(args.ckpt_folder, args.folder, name)
+    checkpoint_path = os.path.join(args.folder, name)
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     # wait until checkpoints in all processes are loaded
     # torch.distributed.barrier()
@@ -193,14 +193,14 @@ def eval(dataloader, model, tokenizer, args):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
             total_sample += filter_input_ids.shape[0]
-            '''
+            """
             print(
                 tokenizer.decode(
                     filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
                 )
             )
             print(tokenizer.decode(filter_input_ids[0][filter_answer_indices[0] + 2 :]))
-            '''
+            """
             # with torch.autocast(device_type="cuda"):
             #     filter_outputs = model(
             #         input_ids=filter_input_ids,
@@ -242,10 +242,10 @@ def eval(dataloader, model, tokenizer, args):
             filter_answer = (
                 tokenizer.decode(filter_answer_ids[0]).replace("</s>", "").strip()
             )
-            
-            #print("the model output", filter_outputs)
-            #print("decoded answer", filter_answer.replace("\n", "/"))
-            
+
+            # print("the model output", filter_outputs)
+            # print("decoded answer", filter_answer.replace("\n", "/"))
+
             if filter_answer == "No object available":
                 ranking_empty_total += 1
                 if filter_answer == filter_outputs:
@@ -259,8 +259,8 @@ def eval(dataloader, model, tokenizer, args):
                 for i in range(min(len(filter_outputs), len(filter_answer))):
                     if filter_outputs[i] == filter_answer[i]:
                         ranking_match_correct += 1
-            #print("splited filter output", filter_outputs)
-            #print("splited filter answer", filter_answer)
+            # print("splited filter output", filter_outputs)
+            # print("splited filter answer", filter_answer)
             # construct selection prompt and get the answer
             selection_dict = sample.selection_dict[0]
             selection_sample = construct_selection_prompt(
@@ -290,17 +290,17 @@ def eval(dataloader, model, tokenizer, args):
             )
             input_ids = selection_sample.input_ids.to("cuda")
             # test the output of construct_selection_prompt
-            '''
+            """
             print("selection prompt")
             print(
                 tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
             )
-            '''
-            
+            """
+
             length = torch.nonzero(input_ids).shape[0]
-            decode_result = tokenizer.decode(input_ids[0][0: length])
-            if '<unk>' in decode_result:
-                print('unknow problem in tokenizer!')
+            decode_result = tokenizer.decode(input_ids[0][0:length])
+            if "<unk>" in decode_result:
+                print("unknow problem in tokenizer!")
             attention_mask = selection_sample.attention_mask.to("cuda")
             labels = input_ids.clone()
             answer_indices = torch.where(labels == 22550)[1]
@@ -335,29 +335,34 @@ def eval(dataloader, model, tokenizer, args):
                 .replace("</s>", "")
                 .strip()
             )
-            #print("final selection result", outputs)
-            gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
-            #print("ground truth", gt)
-            gt_type = gt.split(" ")[0]
-            gt_id = gt.split(" ")[1]
-            outputs_type = outputs.split(" ")[0]
-            outputs_id = outputs.split(" ")[1]
-            if gt_type == "snapshot":
-                snapshot_gt_total += 1
-                if gt_type == outputs_type:
-                    snapshot_type_correct += 1
-                    if gt_id == outputs_id:
-                        snapshot_id_correct += 1
-            if gt_type == "frontier":
-                frontier_gt_total += 1
-                if gt_type == outputs_type:
-                    frontier_type_correct += 1
-                    if gt_id == outputs_id:
-                        frontier_id_correct += 1
+            try:
+                # print("final selection result", outputs)
+                gt = tokenizer.decode(answer_ids[0]).replace("</s>", "").strip()
+                # print("ground truth", gt)
+                gt_type = gt.split(" ")[0]
+                gt_id = gt.split(" ")[1]
+                outputs_type = outputs.split(" ")[0]
+                outputs_id = outputs.split(" ")[1]
+                if gt_type == "snapshot":
+                    snapshot_gt_total += 1
+                    if gt_type == outputs_type:
+                        snapshot_type_correct += 1
+                        if gt_id == outputs_id:
+                            snapshot_id_correct += 1
+                if gt_type == "frontier":
+                    frontier_gt_total += 1
+                    if gt_type == outputs_type:
+                        frontier_type_correct += 1
+                        if gt_id == outputs_id:
+                            frontier_id_correct += 1
 
-            total += 1
-            if gt.lower().strip() == outputs.lower().strip():
-                correct += 1
+                total += 1
+                if gt.lower().strip() == outputs.lower().strip():
+                    correct += 1
+            except:
+                print("error in decoding")
+                print(outputs)
+                continue
 
             pbar.set_description(f"acc: {correct / total_sample}")
 
@@ -456,7 +461,7 @@ def main():
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
 
-    model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     print(model_path)
     model_name = get_model_name_from_path(model_path)

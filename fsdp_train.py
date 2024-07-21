@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset import ExploreDataset
+from dataset_snapshot import ExploreDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
 from easydict import EasyDict
@@ -320,7 +320,7 @@ def main():
         transformer_layer_cls=transformer_layer_cls,
     )
 
-    model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(

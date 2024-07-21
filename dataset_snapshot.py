@@ -140,7 +140,7 @@ def prepare_action_memory(memory_path):
 
 
 def prepare_frontier(feature_path, frontier_info):
-    #print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
+    # print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
     try:
         text = f"Below are all the frontiers that we can explore:\n"
         if len(frontier_info) > 0:
@@ -149,12 +149,12 @@ def prepare_frontier(feature_path, frontier_info):
                 frontier_features.append(
                     torch.load(feature_path[info["rgb_id"]], map_location="cpu")
                 )
-                text += f"frontier {i} <scene> "
+                text += f"frontier {i} <scene> / "
             frontier_features = torch.cat(frontier_features, dim=0)
         else:
             text += f"No frontier available "
             frontier_features = None
-        text += "/\n"
+        text += "\n"
         return text, frontier_features
     except:
         return None, None
@@ -396,7 +396,7 @@ class ExploreDataset(Dataset):
 
         # prefiltering TODO
         # use seen objects set to replace class2object
-        #class2object = defaultdict(list)
+        # class2object = defaultdict(list)
         seen_classes = set()
         for i, rgb_id in enumerate(step["snapshot_features"].keys()):
             # No need to filter here (both scene_graph and snapshots objects from the json files)
@@ -405,10 +405,12 @@ class ExploreDataset(Dataset):
                 snapshot_feature = torch.load(
                     step["snapshot_features"][rgb_id], map_location="cpu"
                 )
-                snapshot_class = [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
+                snapshot_class = [
+                    obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]
+                ]
                 seen_classes.update(snapshot_class)
                 snapshot_classes.append(
-                    #[obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
+                    # [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
                     snapshot_class
                 )
                 snapshot_features.append(snapshot_feature)
@@ -455,63 +457,56 @@ class ExploreDataset(Dataset):
         # prefiltering TODO
         if self.prefiltering:
             # compute the intersection of ranking and class2object
-            '''
+            """
             print(episode["question"])
             print(seen_objects)
             print(ranking)
-            '''
+            """
             ranking = [cls for cls in ranking if cls in seen_classes]
             ranking = ranking[: self.top_k_categories]
             # 1. unlike objects, we can not directly order snapshots based on ranking, so
             # we simply filter out useless snapshots without reordering
             # keep snapshots that have at least one object in the ranking
-            '''
+            """
             print(f'top{self.top_k_categories} ranking', ranking)
             print("raw keep indices", keep_indices)
             print("raw snapshot classes", snapshot_classes)
-            '''
+            """
             ranking_set = set(ranking)
             snap_indices = [
                 snap_idx
                 for snap_idx in range(snapshot_index)
                 if len(set(snapshot_classes[snap_idx]) & ranking_set) > 0
             ]
-            keep_indices = [
-                keep_indices[snap_idx]
-                for snap_idx in snap_indices
-            ]
-            snapshot_classes = [
-                snapshot_classes[snap_idx]
-                for snap_idx in snap_indices
-            ]
+            keep_indices = [keep_indices[snap_idx] for snap_idx in snap_indices]
+            snapshot_classes = [snapshot_classes[snap_idx] for snap_idx in snap_indices]
             # further filter out the useless objects (objects not in ranking) in each snapshot
-            #print('before inner snapshot filtering', snapshot_classes)
+            # print('before inner snapshot filtering', snapshot_classes)
             snapshot_classes = [
-                [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set] 
+                [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set]
                 for snap_cls in snapshot_classes
             ]
-            #print('after inner snapshot filtering', snapshot_classes)
+            # print('after inner snapshot filtering', snapshot_classes)
             snapshot_features = [
-                snapshot_features[snap_idx]
-                for snap_idx in snap_indices
+                snapshot_features[snap_idx] for snap_idx in snap_indices
             ]
             snapshot_index = len(keep_indices)
             # debugging prompt
-            '''
+            """
             print("filtered snapshot index", snap_indices)
             print("filtered keep indices", keep_indices)
             print("filtered snapshot classes", snapshot_classes)
-            '''
+            """
 
         if shuffle:
             # shuffle the index if random_permute is True otherwise keep the original order
             random_snapshot_index = list(range(snapshot_index))
             np.random.shuffle(random_snapshot_index)
-            '''
+            """
             print('shuffle index', random_snapshot_index)
             print('original keep indices', keep_indices)
             print('original snapshot classes', snapshot_classes)
-            '''
+            """
             keep_indices = [keep_indices[r_idx] for r_idx in random_snapshot_index]
             snapshot_classes = [
                 snapshot_classes[r_idx] for r_idx in random_snapshot_index
@@ -519,10 +514,10 @@ class ExploreDataset(Dataset):
             snapshot_features = [
                 snapshot_features[r_idx] for r_idx in random_snapshot_index
             ]
-            '''
+            """
             print('shuffled keep indices', keep_indices)
             print('shuffled snapshot classes', snapshot_classes)
-            '''
+            """
         text += "These are the snapshots:\n"
         for i, class_names in enumerate(snapshot_classes):
             text += f"snapshot {i} "
@@ -531,7 +526,7 @@ class ExploreDataset(Dataset):
             sorted_class_names = sorted(class_names_list)
             for class_name in sorted_class_names:
                 text += f"{class_name}, "
-            text += "<scene> "
+            text += "<scene> / "
 
         if snapshot_index == 0:
             text += f"No snapshot available "
@@ -541,14 +536,14 @@ class ExploreDataset(Dataset):
             snapshot_features = torch.cat(snapshot_features, dim=0)
             multi_src_features.append(snapshot_features)
 
-        text += "/\n"
+        text += "\n"
 
         # shuffle frontier index
-        #print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
+        # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
         frontier_index = list(range(len(step["frontiers"])))
         if shuffle:
             np.random.shuffle(frontier_index)
-        #print("random_frontier_index", frontier_index)
+        # print("random_frontier_index", frontier_index)
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
@@ -574,7 +569,7 @@ class ExploreDataset(Dataset):
         assert prediction.shape[0] == len(step["snapshot_features"]) + len(
             step["frontiers"]
         )
-        #print("frontier prediction before shuffle", prediction[-len(step["frontiers"]):])
+        # print("frontier prediction before shuffle", prediction[-len(step["frontiers"]):])
         prediction = np.concatenate(
             (
                 prediction[keep_indices],
@@ -583,7 +578,7 @@ class ExploreDataset(Dataset):
                 ],
             )
         )
-        #print("frontier prediction after shuffle", prediction[-len(step["frontiers"]):])
+        # print("frontier prediction after shuffle", prediction[-len(step["frontiers"]):])
         # print("reformatted prediction", prediction)
         prediction = torch.tensor(prediction)
 
@@ -638,9 +633,9 @@ class ExploreDataset(Dataset):
         )
         input_ids = text["input_ids"]
         length = torch.nonzero(input_ids).shape[0]
-        decode_result = self.tokenizer.decode(input_ids[0][0: length])
-        if '<unk>' in decode_result:
-            print('unknow problem in tokenizer!')
+        decode_result = self.tokenizer.decode(input_ids[0][0:length])
+        if "<unk>" in decode_result:
+            print("unknow problem in tokenizer!")
 
         attention_mask = text["attention_mask"]
 
@@ -724,13 +719,13 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 700
-            and int(self.episodes[i]["scene"].split("-")[0]) < 730
+            if int(self.episodes[i]["scene"].split("-")[0]) > 850
+            and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) <= 700
+            if int(self.episodes[i]["scene"].split("-")[0]) < 800
         ]
         train_index, test_index = [], []
         for i in self.episode2step.keys():
