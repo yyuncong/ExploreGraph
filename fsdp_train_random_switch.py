@@ -326,7 +326,7 @@ def main():
         transformer_layer_cls=transformer_layer_cls,
     )
 
-    model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(

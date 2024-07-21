@@ -46,10 +46,14 @@ import warnings
 warnings.filterwarnings("ignore")
 import logging
 
+logging_path = "log.log"
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(message)s",
-    datefmt="%m/%d %I:%M:%S",
+    format="%(message)s",
+    handlers=[
+        logging.FileHandler(logging_path, mode="w"),
+        logging.StreamHandler(),
+    ],
 )
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
@@ -109,21 +113,26 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels[labels == tokenizer.pad_token_id] = -100
 
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
-        print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
-        print()
-        print(tokenizer.decode(labels[0][labels[0] != -100]))
 
-        optimizer.zero_grad()
-
-        outputs = llava_model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            labels=labels,
-            feature_dict=feature_dict,
-            output_hidden_states=True,
+        # print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        # print()
+        # print(tokenizer.decode(labels[0][labels[0] != -100]))
+        logging.info(
+            tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
         )
-        selection_loss = outputs.loss
-        combined_loss = selection_loss
+        logging.info(tokenizer.decode(labels[0][labels[0] != -100]))
+
+        # optimizer.zero_grad()
+
+        # outputs = llava_model(
+        #     input_ids=input_ids,
+        #     attention_mask=attention_mask,
+        #     labels=labels,
+        #     feature_dict=feature_dict,
+        #     output_hidden_states=True,
+        # )
+        # selection_loss = outputs.loss
+        # combined_loss = selection_loss
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
         # Add the values of the two losses to the set_description line
@@ -150,24 +159,30 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             #         filter_labels[0][filter_labels[0] != -100]
             #     )
             # )
+            logging.info(
+                tokenizer.decode(
+                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+                )
+            )
+            logging.info(tokenizer.decode(filter_labels[0][filter_labels[0] != -100]))
 
-            filter_outputs = llava_model(
-                input_ids=filter_input_ids,
-                attention_mask=filter_attention_mask,
-                labels=filter_labels,
-                feature_dict=None,
-                output_hidden_states=True,
-            )
-            filter_loss = filter_outputs.loss
-            combined_loss += filter_loss
-        combined_loss.backward()
-        optimizer.step()
-        if args.prefiltering:
-            pbar.set_description(
-                f"loss: {combined_loss.item():.3f}, selection_loss: {selection_loss.item():.3f}, filter_loss: {filter_loss.item():.3f}"
-            )
-        else:
-            pbar.set_description(f"loss: {combined_loss.item():.3f}")
+            # filter_outputs = llava_model(
+            #     input_ids=filter_input_ids,
+            #     attention_mask=filter_attention_mask,
+            #     labels=filter_labels,
+            #     feature_dict=None,
+            #     output_hidden_states=True,
+            # )
+            # filter_loss = filter_outputs.loss
+            # combined_loss += filter_loss
+        # combined_loss.backward()
+        # optimizer.step()
+        # if args.prefiltering:
+        #     pbar.set_description(
+        #         f"loss: {combined_loss.item():.3f}, selection_loss: {selection_loss.item():.3f}, filter_loss: {filter_loss.item():.3f}"
+        #     )
+        # else:
+        #     pbar.set_description(f"loss: {combined_loss.item():.3f}")
 
 
 def eval(dataloader, model, tokenizer, args):
@@ -316,7 +331,7 @@ def main():
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
     # device_id = init_distributed_device(args)
 
-    model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(
