@@ -67,7 +67,34 @@ def set_seed(seed):
 # TODO:
 # 1. initialize lora config
 # 2. use lora to wrap up the model
-def lora_wrapper()
+def find_all_linear_names(model):
+    cls = torch.nn.Linear
+    lora_module_names = set()
+    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
+    for name, module in model.named_modules():
+        if any(mm_keyword in name for mm_keyword in multimodal_keywords):
+            continue
+        if isinstance(module, cls):
+            names = name.split('.')
+            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+
+    if 'lm_head' in lora_module_names: # needed for 16-bit
+        lora_module_names.remove('lm_head')
+    return list(lora_module_names)
+
+def lora_wrapper(model,args):
+    lora_config = LoraConfig(
+        r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        target_modules=find_all_linear_names(model),
+        lora_dropout=args.lora_dropout,
+        bias=args.lora_bias,
+        task_type = 'CAUSAL_LM'
+    )
+    model = get_peft_model(model, lora_config)
+    return model
+    
+    
 
 def load_checkpoint(model, args, name="checkpoint.pt"):
     checkpoint = torch.load(name, map_location="cpu")
@@ -290,6 +317,13 @@ def main():
     parser.add_argument("--lr",default = 1e-6, type=float)
     parser.add_argument("--batch_size",default = 1, type = int)
     parser.add_argument("--folder", default="tmp", help="save folder")
+    # argument for lora----------------------------------
+    parser.add_argument("--lora_enable", default=False, action="store_true")
+    parser.add_argument("--lora_r", default = 128, type=int)
+    parser.add_argument("--lora_alpha", default = 256, type=int)
+    parser.add_argument("--lora_dropout", default = 0.05, type=float)
+    parser.add_argument("--lora_bias",default = "none", type=str)
+    #----------------------------------------------------
     parser.add_argument(
         "--scene_path",
         default="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory",
@@ -350,6 +384,8 @@ def main():
     # freeze the model
     model.requires_grad_(True)
     del model.model.vision_tower
+    if args.lora_enable:
+        model = lora_wrapper(model,args)
     model.train()
     
     # TODO: initialize the deepspedd engine here

@@ -71,8 +71,9 @@ echo $CMD
 
 srun $CMD \
 deepspeed_train.py \
+--lora_enable \
 --folder ds_tmp \
 --lr=1e-6 \
 --num_epochs=115 \
---batch_size=1 \
+--batch_size=3 \
 $DEEPSPEED_ARGS \

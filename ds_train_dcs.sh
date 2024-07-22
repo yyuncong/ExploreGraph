@@ -73,6 +73,7 @@ echo $CMD
 
 srun $CMD \
 deepspeed_train.py \
+--lora_enable \
 --folder ds_tmp \
 --lr=1e-6 \
 --num_epochs=115 \
