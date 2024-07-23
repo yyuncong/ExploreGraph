@@ -9,6 +9,7 @@ import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 from dataset import ExploreDataset
+#from dataset_snapshot import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -56,6 +57,7 @@ logging.basicConfig(
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
+import json
 
 
 def set_seed(seed):
@@ -93,8 +95,7 @@ def lora_wrapper(model,args):
     )
     model = get_peft_model(model, lora_config)
     return model
-    
-    
+     
 
 def load_checkpoint(model, args, name="checkpoint.pt"):
     checkpoint = torch.load(name, map_location="cpu")
@@ -106,6 +107,18 @@ def load_checkpoint(model, args, name="checkpoint.pt"):
     torch.cuda.empty_cache()
     torch.distributed.barrier()
 
+def load_ds_checkpoint(model, args, name="checkpoint.pt"):
+    # model should be an unwrapped initial model
+    # wrap model with lora (the lora config should be the same)
+    if args.lora_enable:
+        model = lora_wrapper(model,args)
+    model_engine, optimizer, _, _ = deepspeed.initialize(
+        args = args,
+        model = model,
+        model_parameters = [p for p in model.parameters() if p.requires_grad] #model.parameters()
+    )
+    model_engine.load_checkpoint(name)
+    return model_engine
 
 def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
     try:
@@ -121,6 +134,15 @@ def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
         torch.save(cpu_state, name)
     torch.distributed.barrier()
 
+def save_ds_checkpoint(model_engine, folder, epoch, args, name="checkpoint.pt"):
+    try:
+        if not os.path.exists(folder):
+            os.mkdir(folder)
+    except:
+        pass
+    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
+    model_engine.save_checkpoint(name)
+    return model_engine
 
 def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, args):
     #print(type(llava_model))
@@ -215,7 +237,6 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         else:
             pbar.set_description(f"loss: {combined_loss.item():.3f}")
 
-
 def eval(dataloader, model, tokenizer, args):
     model.eval()
     total_combined_loss = 0
@@ -287,7 +308,6 @@ def eval(dataloader, model, tokenizer, args):
                 )
             else:
                 pbar.set_description(f"loss: {total_combined_loss / total_sample:.3f}")
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -382,18 +402,22 @@ def main():
         model_path, None, model_name, device_map=None, add_multisensory_token=True
     )
     # freeze the model
+    print('if the lora is enabled', args.lora_enable)
     model.requires_grad_(True)
     del model.model.vision_tower
     if args.lora_enable:
         model = lora_wrapper(model,args)
+        # check trainable parameters
+        model.print_trainable_parameters()
+        # compatiable with deepspeed config
+        model.to(torch.float16)
     model.train()
-    
     # TODO: initialize the deepspedd engine here
     # figure out where args/model_parameters come from
     model_engine, optimizer, _, _ = deepspeed.initialize(
         args = args,
         model = model,
-        model_parameters = model.parameters()
+        model_parameters = [p for p in model.parameters() if p.requires_grad] #model.parameters()
     )
     #print("if the model is correctly wraped?", type(model_engine))
     print("local rank is", model_engine.local_rank)

@@ -48,7 +48,7 @@ echo $NUM_GPUS_PER_NODE
 
 # TODO: set up deepspeed args
 # use train_micro_batch_size_per_gpu to set up dataloader
-config_json="./ds_cfg/test.json"
+config_json="./ds_cfg/zero3.json"
 ZERO_STAGE=0
 DEEPSPEED_ARGS=" \
     --deepspeed \
@@ -71,9 +71,9 @@ echo $CMD
 
 srun $CMD \
 deepspeed_train.py \
---lora_enable \
 --folder ds_tmp \
 --lr=1e-6 \
 --num_epochs=115 \
---batch_size=3 \
+--batch_size=1 \
 $DEEPSPEED_ARGS \
+--lora_enable
