@@ -8,8 +8,8 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset import ExploreDataset
-#from dataset_snapshot import ExploreDataset
+#from dataset import ExploreDataset
+from dataset_snapshot import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -17,6 +17,7 @@ from easydict import EasyDict
 from accelerate import load_checkpoint_and_dispatch
 import deepspeed
 from peft import LoraConfig, get_peft_model
+from distributed import init_distributed_device, world_info_from_env
 
 import numpy as np
 import torch
@@ -150,8 +151,10 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
     # extract local rank and move data to corresponding device
     #llava_model = llava_model.train()
     model_engine.train()
+    
     if model_engine.local_rank == 0:
         torch.cuda.empty_cache()
+        
     pbar = tqdm(dataloader, disable=(model_engine.local_rank != 0))
     local_device = f"cuda:{model_engine.local_rank}"
     for sample in pbar:
@@ -390,39 +393,22 @@ def main():
     #args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
-    # args.local_rank, args.rank, args.world_size = world_info_from_env()
-    # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
+    args.local_rank, args.rank, args.world_size = world_info_from_env()
+    print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
     # device_id = init_distributed_device(args)
 
     # wrap up the model with deepspeed
     model_path = "liuhaotian/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
-    tokenizer, model, image_processor, context_len = load_pretrained_model(
-        model_path, None, model_name, device_map=None, add_multisensory_token=True
+    tokenizer, model, _, _ = load_pretrained_model(
+        model_path, None, model_name, device_map = None, add_multisensory_token=True
     )
-    # freeze the model
-    print('if the lora is enabled', args.lora_enable)
-    model.requires_grad_(True)
-    del model.model.vision_tower
-    if args.lora_enable:
-        model = lora_wrapper(model,args)
-        # check trainable parameters
-        model.print_trainable_parameters()
-        # compatiable with deepspeed config
-        model.to(torch.float16)
-    model.train()
-    # TODO: initialize the deepspedd engine here
-    # figure out where args/model_parameters come from
-    model_engine, optimizer, _, _ = deepspeed.initialize(
-        args = args,
-        model = model,
-        model_parameters = [p for p in model.parameters() if p.requires_grad] #model.parameters()
-    )
+    model = model.to('cpu')
     #print("if the model is correctly wraped?", type(model_engine))
-    print("local rank is", model_engine.local_rank)
+    #print("local rank is", model_engine.local_rank)
     # Jiachen TODO: pass your parameter in the dataset file
-    dataset = ExploreDataset(
+    train_total_dataset = ExploreDataset(
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
@@ -434,35 +420,81 @@ def main():
         tokenizer=tokenizer,
         max_length=2048,
     )
-    train_index, test_index = dataset.split_index(test_ratio=0.25)
-    train_dataset = Subset(dataset, train_index)
-    val_dataset = Subset(dataset, test_index)
+    val_total_dataset = ExploreDataset(
+        scene_path=args.scene_path,
+        exploration_path=args.exploration_path,
+        egocentric_views=args.egocentric_views,
+        action_memory=args.action_memory,
+        prefiltering=args.prefiltering,
+        top_k_categories=args.top_k_categories,
+        random_permute=args.random_permute,
+        add_positional_encodings=args.add_positional_encodings,
+        tokenizer=tokenizer,
+        max_length=2048,
+        split="val",
+    )
+    train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)
+    train_dataset = Subset(train_total_dataset, train_index)
+    val_dataset = Subset(val_total_dataset, test_index)
+    
+    sampler = DistributedSampler(
+        train_dataset,
+        num_replicas=args.world_size,
+        rank=args.rank,
+        shuffle=True,
+        drop_last=False,
+    )
     dataloader = DataLoader(
         train_dataset,
-        #batch_size=2,
         batch_size = args.batch_size,
-        shuffle=True,
         pin_memory=True,
-        num_workers=0,
-        collate_fn=dataset.collate_wrapper,
+        num_workers=8,
+        sampler=sampler,
+        collate_fn=train_total_dataset.collate_wrapper,
     )
+    
     val_dataloader = DataLoader(
-        train_dataset,
+        val_dataset,
         batch_size=1,
         shuffle=True,
         pin_memory=True,
         num_workers=1,
-        collate_fn=dataset.collate_wrapper,
-    )
-    all_dataloader = DataLoader(
-        dataset,
-        batch_size=2,
-        shuffle=False,
-        pin_memory=True,
-        num_workers=4,
-        collate_fn=dataset.collate_wrapper,
+        collate_fn=val_total_dataset.collate_wrapper,
     )
 
+    # wrap up the model with lora and deepspeed
+    print('if the lora is enabled', args.lora_enable)
+    model.requires_grad_(True)
+    del model.model.vision_tower
+    if args.lora_enable:
+        model = lora_wrapper(model,args)
+        # check trainable parameters
+        model.print_trainable_parameters()
+        # compatiable with deepspeed config
+        model.to(torch.float16)
+    #model.train()
+    # TODO: initialize the deepspedd engine here
+    # figure out where args/model_parameters come from
+    # count the number of parameters that requires grad
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("the used parameters in deepspeed", count_parameters(model))
+    optimizer = torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad], 
+        lr=1e-6
+    )
+    model, optimizer, _, _ = deepspeed.initialize(
+        args = args,
+        model = model,
+        optimizer = optimizer
+    )
+        #model_parameters = [p for p in model.parameters() if p.requires_grad]) #model.parameters()
+        #training_data = train_dataset,
+        #collate_fn = train_total_dataset.collate_wrapper,
+    #)
+    # del the raw model
+    # del model
+    print("local rank is", model.local_rank)
 
     #optimizer = torch.optim.AdamW(model.parameters(), lr=1e-6)
 
@@ -475,14 +507,12 @@ def main():
     # start training
     # may be use this to avoid out of memory
     for epoch in range(args.num_epochs):
-        print("Start training epoch %d" % epoch)
-
+        if model.local_rank == 0:
+            print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
-        dataset.split = "train"
-        train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, args)
+        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
-        dataset.split = "val"
         print("evaluating")
         # Jiachen TODO: update eval for your feature
         # eval(val_dataloader, model, tokenizer, args)
