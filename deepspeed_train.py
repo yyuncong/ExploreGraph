@@ -10,6 +10,7 @@ from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 #from dataset import ExploreDataset
 from dataset_snapshot import ExploreDataset
+#from dataset_snapshot_ds import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -49,6 +50,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 import logging
+from monitor import log_gpu_memory_usage
 
 logging.basicConfig(
     level=logging.INFO,
@@ -156,7 +158,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         torch.cuda.empty_cache()
         
     pbar = tqdm(dataloader, disable=(model_engine.local_rank != 0))
-    local_device = f"cuda:{model_engine.local_rank}"
+    local_device = torch.device(f"cuda:{model_engine.local_rank}")
     for sample in pbar:
         feature_dict = EasyDict(
             scene_feature=sample.scene_feature.to(local_device),
@@ -172,7 +174,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             labels[j, : answer_idx + 2] = -100
 
         labels[labels == tokenizer.pad_token_id] = -100
-
+        log_gpu_memory_usage(model_engine.local_rank,"after loading data")
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
         '''
         print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
@@ -191,6 +193,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             )
         selection_loss = outputs.loss
         combined_loss = selection_loss
+        log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
         # Add the values of the two losses to the set_description line
@@ -229,9 +232,11 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
                 )
             filter_loss = filter_outputs.loss
             combined_loss += filter_loss
+            log_gpu_memory_usage(model_engine.local_rank,"after filter forward pass")
         #combined_loss.backward()
         #optimizer.step()
         model_engine.backward(combined_loss)
+        log_gpu_memory_usage(model_engine.local_rank,"after backward")
         model_engine.step()
         if args.prefiltering:
             pbar.set_description(
@@ -239,7 +244,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             )
         else:
             pbar.set_description(f"loss: {combined_loss.item():.3f}")
-
+        log_gpu_memory_usage(model_engine.local_rank,"after one step")
 def eval(dataloader, model, tokenizer, args):
     model.eval()
     total_combined_loss = 0
@@ -394,6 +399,8 @@ def main():
     # set up random seed
     set_seed(args.seed)
     args.local_rank, args.rank, args.world_size = world_info_from_env()
+    device_id = torch.device(f'cuda:{args.local_rank}')
+    torch.cuda.set_device(device_id)
     print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
     # device_id = init_distributed_device(args)
 
@@ -401,10 +408,15 @@ def main():
     model_path = "liuhaotian/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
+    log_gpu_memory_usage(args.local_rank,"before loading model")
     tokenizer, model, _, _ = load_pretrained_model(
         model_path, None, model_name, device_map = None, add_multisensory_token=True
     )
+    log_gpu_memory_usage(args.local_rank,"after loading model")
+    #device_id = torch.device(f'cuda:{args.local_rank}')
+    #torch.cuda.set_device(device_id)
     model = model.to('cpu')
+    log_gpu_memory_usage(args.local_rank,"after moving model to cpu")
     #print("if the model is correctly wraped?", type(model_engine))
     #print("local rank is", model_engine.local_rank)
     # Jiachen TODO: pass your parameter in the dataset file
@@ -418,7 +430,7 @@ def main():
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
-        max_length=2048,
+        max_length=4096,
     )
     val_total_dataset = ExploreDataset(
         scene_path=args.scene_path,
@@ -430,7 +442,7 @@ def main():
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
-        max_length=2048,
+        max_length=4096,
         split="val",
     )
     train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)
@@ -472,6 +484,7 @@ def main():
         model.print_trainable_parameters()
         # compatiable with deepspeed config
         model.to(torch.float16)
+    log_gpu_memory_usage(args.local_rank,"after wrapping model with lora")
     #model.train()
     # TODO: initialize the deepspedd engine here
     # figure out where args/model_parameters come from
@@ -479,6 +492,7 @@ def main():
     def count_parameters(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("the used parameters in deepspeed", count_parameters(model))
+    
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad], 
         lr=1e-6
@@ -494,6 +508,10 @@ def main():
     #)
     # del the raw model
     # del model
+    log_gpu_memory_usage(args.local_rank,"after initializing deepspeed")
+    for p in model.parameters():
+        if int(str(p.device)[-1]) != int(model.local_rank):
+            print(f"current local rank {model.local_rank} and parameter device {p.device}")
     print("local rank is", model.local_rank)
 
     #optimizer = torch.optim.AdamW(model.parameters(), lr=1e-6)
@@ -510,6 +528,7 @@ def main():
         if model.local_rank == 0:
             print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
+        log_gpu_memory_usage(args.local_rank,"before training")
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
