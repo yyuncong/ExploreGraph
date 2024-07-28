@@ -70,5 +70,5 @@ fsdp_train_random_switch.py \
 --top_k_categories=10 \
 --lr=1e-7 \
 --num_epochs=10 \
---batch_size=1 \
+--batch_size=2 \
 --save_interval=1

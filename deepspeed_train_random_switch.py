@@ -161,54 +161,62 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
     total_combined_loss = 0
     total_filter_loss = 0
     total_selection_loss = 0
-    total_sample = 0
-    #random_generator = np.random.default_rng(seed = 10)
+    total_filter_sample = 0
+    total_selection_sample = 0
+    random_generator = np.random.default_rng(seed = 10)
     #local_device = torch.device(f"cuda:{model_engine.local_rank}")
     max_sample_size = 0
     for sample in pbar:
-        feature_dict = EasyDict(
-            scene_feature=sample.scene_feature.to("cuda"),
-            scene_insert_loc=sample.scene_insert_loc,
-            scene_length=sample.scene_length,
-        )
-        input_ids = sample.input_ids.to("cuda")#.to("cpu")
-        attention_mask = sample.attention_mask.to("cuda")#.to("cpu")
-        max_sample_size = max(max_sample_size, input_ids.shape[1])
-        print(f"Current max sample size {max_sample_size} in device {model_engine.local_rank}")
-        labels = input_ids.clone()
-        answer_indices = torch.where(labels == 22550)[1]
-
-        for j, answer_idx in enumerate(answer_indices):
-            labels[j, : answer_idx + 2] = -100
-
-        labels[labels == tokenizer.pad_token_id] = -100
-        log_gpu_memory_usage(model_engine.local_rank,"after loading data")
-        optimizer.zero_grad()
-
-        with torch.autocast(device_type="cuda"):
-            outputs = model_engine(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
-                feature_dict=feature_dict,
-                output_hidden_states=True,
+        if random_generator.random() < 0.5:
+            feature_dict = EasyDict(
+                scene_feature=sample.scene_feature.to("cuda"),
+                scene_insert_loc=sample.scene_insert_loc,
+                scene_length=sample.scene_length,
             )
-        selection_loss = outputs.loss
-        log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
-        
-        del outputs
-        torch.cuda.empty_cache()
-        #print("if the loss is kept", selection_loss)
-        log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
-        model_engine.backward(selection_loss)
-        log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
-        #total_selection_loss += selection_loss.item()
-        #total_selection_sample += input_ids.shape[0]
+            input_ids = sample.input_ids.to("cuda")#.to("cpu")
+            attention_mask = sample.attention_mask.to("cuda")#.to("cpu")
+            max_sample_size = max(max_sample_size, input_ids.shape[1])
+            print(f"Current max sample size {max_sample_size} in device {model_engine.local_rank}")
+            labels = input_ids.clone()
+            answer_indices = torch.where(labels == 22550)[1]
+
+            for j, answer_idx in enumerate(answer_indices):
+                labels[j, : answer_idx + 2] = -100
+
+            labels[labels == tokenizer.pad_token_id] = -100
+            log_gpu_memory_usage(model_engine.local_rank,"after loading data")
+            # Jiachen TODO: check the content of your new prompt by uncommenting the following line
+            '''
+            print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+            print()
+            print(tokenizer.decode(labels[0][labels[0] != -100]))
+            '''
+            optimizer.zero_grad()
+
+            with torch.autocast(device_type="cuda"):
+                outputs = model_engine(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                    feature_dict=feature_dict,
+                    output_hidden_states=True,
+                )
+            selection_loss = outputs.loss
+            log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
+            
+            del outputs
+            torch.cuda.empty_cache()
+            #print("if the loss is kept", selection_loss)
+            log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
+            model_engine.backward(selection_loss)
+            log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
+            total_selection_loss += selection_loss.item()
+            total_selection_sample += input_ids.shape[0]
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
         # Add the values of the two losses to the set_description line
         # None feature dict as a placeholder
-        if args.prefiltering:
+        else:
             filter_input_ids = sample.filter_input_ids.to("cuda")#.to("cpu")
             filter_attention_mask = sample.filter_attention_mask.to("cuda")#.to("cpu")
             filter_labels = filter_input_ids.clone()
@@ -232,22 +240,26 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             log_gpu_memory_usage(model_engine.local_rank,"remove filter cache")
             model_engine.backward(filter_loss)
             log_gpu_memory_usage(model_engine.local_rank,"after filter backward pass")
+            total_filter_loss += filter_loss.item()
+            total_filter_sample += filter_input_ids.shape[0]
         #combined_loss.backward()
         #optimizer.step()
         #model_engine.backward(combined_loss)
         #log_gpu_memory_usage(model_engine.local_rank,"after backward")
         model_engine.step()
-        total_selection_loss += selection_loss.item()
-        total_sample += input_ids.shape[0]
+        '''
         if args.prefiltering:
-            total_filter_loss += filter_loss.item()
             pbar.set_description(
-                f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+                f"loss: {combined_loss.item():.3f}, selection_loss: {selection_loss.item():.3f}, filter_loss: {filter_loss.item():.3f}"
             )
         else:
-            pbar.set_description(f"loss: {total_selection_loss / total_sample:.3f}")
+            pbar.set_description(f"loss: {combined_loss.item():.3f}")
+        '''
+        pbar.set_description(
+            f"loss: {(total_selection_loss + total_filter_loss) / (total_selection_sample + total_filter_sample):.3f}, selection_loss: {total_selection_loss / max(total_selection_sample, 1):.3f}, filter_loss: {total_filter_loss / max(total_filter_sample, 1):.3f}"
+        )
         log_gpu_memory_usage(model_engine.local_rank,"after one step")
-    print(f"max sample size {max_sample_size} in device {model_engine.local_rank}")
+        print(f"max sample size {max_sample_size} in device {model_engine.local_rank}")
 def eval(dataloader, model, tokenizer, args):
     model.eval()
     total_combined_loss = 0

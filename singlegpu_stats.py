@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot import ExploreDataset
+from dataset_snapshot_tokens import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -290,6 +290,7 @@ def main():
     )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
+    parser.add_argument("--patch_size", type=int, default=3)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -298,7 +299,7 @@ def main():
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
 
-    model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(
@@ -320,6 +321,7 @@ def main():
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
+        patch_size=args.patch_size,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -350,8 +352,8 @@ def main():
     # )
 
     dataloader = DataLoader(
-        val_total_dataset,
-        batch_size=4096,
+        val_dataset,
+        batch_size=128,
         pin_memory=True,
         num_workers=0,
         collate_fn=val_total_dataset.collate_wrapper,

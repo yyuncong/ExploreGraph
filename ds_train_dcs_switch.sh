@@ -1,14 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=test-ds
-#SBATCH --output=log/ds-%j.txt
-#SBATCH --error=log/ds-%j.err
+#SBATCH --output=log/dcs_ds-%j.txt
+#SBATCH --error=log/dcs_ds-%j.err
 #SBATCH --time=06:00:00
-#SBATCH --gres=gpu:8
-#SBATCH --nodes=1
+#SBATCH --gres=gpu:6
+#SBATCH --nodes=3
 # activate the environment
-#source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
+# source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 source ~/.bashrc_dcs
-conda activate jc-eqa
+conda activate /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3/envs/jc-eqa
+#conda activate jc-eqa
 
 
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
@@ -49,7 +50,8 @@ echo $NUM_GPUS_PER_NODE
 
 # TODO: set up deepspeed args
 # use train_micro_batch_size_per_gpu to set up dataloader
-config_json="./ds_cfg/zero3.json"
+# zero3 offload has unsolved problems
+config_json="./ds_cfg/zero2.json"
 ZERO_STAGE=0
 DEEPSPEED_ARGS=" \
     --deepspeed \
@@ -63,18 +65,25 @@ export CUDA_LAUNCH_BLOCKING=1
 
 if [ $SLURM_NNODES -gt 1 ]; then
     CMD="torchrun --nnodes=$SLURM_NNODES --nproc_per_node=$NUM_GPUS_PER_NODE --node_rank=$NODE_RANK
-    --rdzv-id=$RANDOM --rdzv-backend=c10d --rdzv-endpoint=$MASTER_ADDR:$MASTER_PORT"
+    --rdzv_id=$RANDOM --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT"
 else
     CMD="torchrun --nproc_per_node=$NUM_GPUS_PER_NODE --master_port=$MASTER_PORT"
 fi
 
 echo $CMD
 
+# always set every choice to true to achieve peak GPU memory
 srun $CMD \
-deepspeed_train.py \
+deepspeed_train_random_switch.py \
 --folder ds_tmp \
---lr=1e-6 \
---num_epochs=115 \
+--random_permute \
+--prefiltering \
+--filter_coeff=0.3 \
+--top_k_categories=10 \
+--lr=1e-7 \
+--num_epochs=10 \
 --batch_size=1 \
 $DEEPSPEED_ARGS \
+--egocentric_views \
+--action_memory \
 --lora_enable

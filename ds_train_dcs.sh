@@ -51,7 +51,7 @@ echo $NUM_GPUS_PER_NODE
 # TODO: set up deepspeed args
 # use train_micro_batch_size_per_gpu to set up dataloader
 # zero3 offload has unsolved problems
-config_json="./ds_cfg/zero3_checkpoint.json"
+config_json="./ds_cfg/zero2.json"
 ZERO_STAGE=0
 DEEPSPEED_ARGS=" \
     --deepspeed \
@@ -76,11 +76,14 @@ echo $CMD
 srun $CMD \
 deepspeed_train.py \
 --folder ds_tmp \
---lr=1e-6 \
---num_epochs=115 \
---batch_size=2 \
+--random_permute \
+--prefiltering \
+--filter_coeff=0.3 \
+--top_k_categories=10 \
+--lr=1e-7 \
+--num_epochs=10 \
+--batch_size=1 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --action_memory \
---prefiltering \
 --lora_enable
