@@ -154,8 +154,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
     #llava_model = llava_model.train()
     model_engine.train()
     
-    if model_engine.local_rank == 0:
-        torch.cuda.empty_cache()
+    torch.cuda.empty_cache()
         
     pbar = tqdm(dataloader, disable=(model_engine.local_rank != 0))
     local_device = torch.device(f"cuda:{model_engine.local_rank}")
@@ -167,6 +166,8 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         )
         input_ids = sample.input_ids.to(local_device)#.to("cpu")
         attention_mask = sample.attention_mask.to(local_device)#.to("cpu")
+        print("the size of the input_ids", input_ids.shape)
+        print("the size of the attention_mask", torch.sum(attention_mask))
         labels = input_ids.clone()
         answer_indices = torch.where(labels == 22550)[1]
 
@@ -194,6 +195,13 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         selection_loss = outputs.loss
         combined_loss = selection_loss
         log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
+        
+        del outputs
+        torch.cuda.empty_cache()
+        #print("if the loss is kept", selection_loss)
+        log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
+        model_engine.backward(combined_loss)
+        log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
         # Add the values of the two losses to the set_description line
@@ -231,12 +239,15 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
                     output_hidden_states=True,
                 )
             filter_loss = filter_outputs.loss
-            combined_loss += filter_loss
-            log_gpu_memory_usage(model_engine.local_rank,"after filter forward pass")
+            #combined_loss += filter_loss
+            del filter_outputs
+            log_gpu_memory_usage(model_engine.local_rank,"remove filter cache")
+            model_engine.backward(filter_loss)
+            log_gpu_memory_usage(model_engine.local_rank,"after filter backward pass")
         #combined_loss.backward()
         #optimizer.step()
-        model_engine.backward(combined_loss)
-        log_gpu_memory_usage(model_engine.local_rank,"after backward")
+        #model_engine.backward(combined_loss)
+        #log_gpu_memory_usage(model_engine.local_rank,"after backward")
         model_engine.step()
         if args.prefiltering:
             pbar.set_description(
