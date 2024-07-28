@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset import ExploreDataset
+from dataset_snapshot_tokens import ExploreDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
 from easydict import EasyDict
@@ -173,6 +173,7 @@ def eval(dataloader, model, tokenizer, args):
     total_sample = 0
     pbar = tqdm(dataloader, disable=(args.rank != 0))
     # pbar = tqdm(dataloader)
+    out_of_bound_count = 0
     with torch.no_grad():
         for sample in pbar:
             feature_dict = EasyDict(
@@ -183,7 +184,11 @@ def eval(dataloader, model, tokenizer, args):
             input_ids = sample.input_ids.to("cuda")
             attention_mask = sample.attention_mask.to("cuda")
             labels = input_ids.clone()
-            answer_indices = torch.where(labels == 22550)[1]
+            try:
+                answer_indices = torch.where(labels == 22550)[1]
+            except:
+                out_of_bound_count += 1
+                continue
 
             for j, answer_idx in enumerate(answer_indices):
                 labels[j, : answer_idx + 2] = -100
@@ -228,6 +233,7 @@ def eval(dataloader, model, tokenizer, args):
         print(
             f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
         )
+        print(f"out_of_bound_count: {out_of_bound_count}")
 
 
 def main():
@@ -297,6 +303,7 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
+    parser.add_argument("--patch_size", type=int, default=3)
     args = parser.parse_args()
 
     # local rank: the rank within the node
@@ -346,6 +353,7 @@ def main():
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
+        patch_size=args.patch_size,
         tokenizer=tokenizer,
         max_length=2048,
     )
@@ -358,6 +366,7 @@ def main():
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
+        patch_size=args.patch_size,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -427,7 +436,7 @@ def main():
     loss_fn = torch.nn.CrossEntropyLoss()
     # start training
 
-    saving_folder = f"{args.folder}_{args.lr}"
+    saving_folder = f"{args.folder}_{args.lr}_patch{args.patch_size}"
     if args.add_positional_encodings:
         saving_folder += "_pos"
     if args.random_permute:

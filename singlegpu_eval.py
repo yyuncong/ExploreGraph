@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_test import ExploreDataset
+from dataset_snapshot_tokens import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -179,7 +179,11 @@ def eval(dataloader, model, tokenizer, args):
             input_ids = sample.input_ids.to("cuda")
             attention_mask = sample.attention_mask.to("cuda")
             labels = input_ids.clone()
-            answer_indices = torch.where(labels == 22550)[1]
+            try:
+                answer_indices = torch.where(labels == 22550)[1]
+            except:
+                total += 1
+                continue
 
             for j, answer_idx in enumerate(answer_indices):
                 labels[j, : answer_idx + 2] = -100
@@ -311,6 +315,7 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
+    parser.add_argument("--patch_size", type=int, default=3)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -342,6 +347,7 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         add_positional_encodings=args.add_positional_encodings,
+        patch_size=args.patch_size,
         tokenizer=tokenizer,
         max_length=2048,
         split="val",
@@ -376,7 +382,7 @@ def main():
     # model.requires_grad_(True)
     del model.model.vision_tower
 
-    saving_folder = f"{args.folder}_{args.lr}"
+    saving_folder = f"{args.folder}_{args.lr}_patch{args.patch_size}"
     if args.add_positional_encodings:
         saving_folder += f"_pos"
     if args.random_permute:
