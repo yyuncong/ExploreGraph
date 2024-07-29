@@ -667,21 +667,21 @@ class ExploreDataset(Dataset):
         scene_feature = torch.cat(multi_src_features, dim=0)
         # print("scene_feature", scene_feature.shape)
 
-        '''
-        if len(scene_feature) // self.num_visual_tokens > 45:
+        
+        if len(scene_feature) // self.num_visual_tokens > 90:
             self.too_many_objects_indices.add(idx)
             if self.split == "train":
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
-        '''
+        
         step["scene_feature"] = scene_feature
-
+        '''
         if self.max_length <= len(text):
             self.too_many_objects_indices.add(idx)
             if self.split == "train":
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
-
+        '''
         # assert self.max_length > len(text)
         # assert self.max_length > len(
         #     scene_feature

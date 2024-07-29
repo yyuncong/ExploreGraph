@@ -73,6 +73,15 @@ def set_seed(seed):
 # TODO:
 # 1. initialize lora config
 # 2. use lora to wrap up the model
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+# TODO:
+# 1. initialize lora config
+# 2. use lora to wrap up the model
 def find_all_linear_names(model):
     cls = torch.nn.Linear
     lora_module_names = set()
@@ -89,16 +98,26 @@ def find_all_linear_names(model):
     return list(lora_module_names)
 
 def lora_wrapper(model,args):
-    lora_config = LoraConfig(
-        r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-        target_modules=find_all_linear_names(model),
-        lora_dropout=args.lora_dropout,
-        bias=args.lora_bias,
-        task_type = 'CAUSAL_LM'
-    )
+    if isinstance(args, dict):
+        lora_config = LoraConfig(
+            r = args['r'],
+            lora_alpha = args['lora_alpha'],
+            target_modules = args['target_modules'],
+            lora_dropout = args['lora_dropout'],
+            bias = args['bias'],
+            task_type = args['task_type']
+        )
+    else:
+        lora_config = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            target_modules=find_all_linear_names(model),
+            lora_dropout=args.lora_dropout,
+            bias=args.lora_bias,
+            task_type = 'CAUSAL_LM'
+        )
     model = get_peft_model(model, lora_config)
-    return model
+    return model, lora_config.to_dict()
      
 
 def load_checkpoint(model, args, name="checkpoint.pt"):
@@ -111,18 +130,17 @@ def load_checkpoint(model, args, name="checkpoint.pt"):
     torch.cuda.empty_cache()
     torch.distributed.barrier()
 
-def load_ds_checkpoint(model, args, name="checkpoint.pt"):
-    # model should be an unwrapped initial model
-    # wrap model with lora (the lora config should be the same)
-    if args.lora_enable:
-        model = lora_wrapper(model,args)
-    model_engine, optimizer, _, _ = deepspeed.initialize(
-        args = args,
-        model = model,
-        model_parameters = [p for p in model.parameters() if p.requires_grad] #model.parameters()
-    )
-    model_engine.load_checkpoint(name)
-    return model_engine
+def load_ds_checkpoint(model,checkpoint_dir):
+    # this returns a model unwrapped lora
+    from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
+    [ckpt_dir, tag] = checkpoint_dir.split('/')
+    state_dict = get_fp32_state_dict_from_zero_checkpoint(ckpt_dir, tag)
+    if "lora_config.json" in os.listdir(ckpt_dir):
+        with open(os.path.join(ckpt_dir, "lora_config.json"), 'r') as f:
+            lora_config = json.load(f)
+        model, _ = lora_wrapper(model,lora_config)
+    model.load_state_dict(state_dict)
+    return model
 
 def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
     try:
@@ -138,15 +156,23 @@ def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
         torch.save(cpu_state, name)
     torch.distributed.barrier()
 
-def save_ds_checkpoint(model_engine, folder, epoch, args, name="checkpoint.pt"):
+def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None):
     try:
         if not os.path.exists(folder):
             os.mkdir(folder)
     except:
         pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    model_engine.save_checkpoint(name)
-    return model_engine
+    #folder = os.path.join(folder, "checkpoint_%d" % epoch)
+    model_engine.save_checkpoint(
+        folder,
+        tag = "checkpoint_%d" % epoch
+    )
+    if lora_config is not None and args.rank == 0:
+        print(lora_config)
+        lora_config["target_modules"] = list(lora_config["target_modules"])
+        with open(os.path.join(folder,"lora_config.json"), "w") as f:
+            json.dump(lora_config, f)
+    #return model_engine
 
 def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, args):
     #print(type(llava_model))

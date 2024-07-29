@@ -89,16 +89,26 @@ def find_all_linear_names(model):
     return list(lora_module_names)
 
 def lora_wrapper(model,args):
-    lora_config = LoraConfig(
-        r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-        target_modules=find_all_linear_names(model),
-        lora_dropout=args.lora_dropout,
-        bias=args.lora_bias,
-        task_type = 'CAUSAL_LM'
-    )
+    if isinstance(args, dict):
+        lora_config = LoraConfig(
+            r = args['r'],
+            lora_alpha = args['lora_alpha'],
+            target_modules = args['target_modules'],
+            lora_dropout = args['lora_dropout'],
+            bias = args['bias'],
+            task_type = args['task_type']
+        )
+    else:
+        lora_config = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            target_modules=find_all_linear_names(model),
+            lora_dropout=args.lora_dropout,
+            bias=args.lora_bias,
+            task_type = 'CAUSAL_LM'
+        )
     model = get_peft_model(model, lora_config)
-    return model
+    return model, lora_config.to_dict()
      
 
 def load_checkpoint(model, args, name="checkpoint.pt"):
@@ -111,18 +121,17 @@ def load_checkpoint(model, args, name="checkpoint.pt"):
     torch.cuda.empty_cache()
     torch.distributed.barrier()
 
-def load_ds_checkpoint(model, args, name="checkpoint.pt"):
-    # model should be an unwrapped initial model
-    # wrap model with lora (the lora config should be the same)
-    if args.lora_enable:
-        model = lora_wrapper(model,args)
-    model_engine, optimizer, _, _ = deepspeed.initialize(
-        args = args,
-        model = model,
-        model_parameters = [p for p in model.parameters() if p.requires_grad] #model.parameters()
-    )
-    model_engine.load_checkpoint(name)
-    return model_engine
+def load_ds_checkpoint(model,checkpoint_dir):
+    # this returns a model unwrapped lora
+    from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
+    [ckpt_dir, tag] = checkpoint_dir.split('/')
+    state_dict = get_fp32_state_dict_from_zero_checkpoint(ckpt_dir, tag)
+    if "lora_config.json" in os.listdir(ckpt_dir):
+        with open(os.path.join(ckpt_dir, "lora_config.json"), 'r') as f:
+            lora_config = json.load(f)
+        model, _ = lora_wrapper(model,lora_config)
+    model.load_state_dict(state_dict)
+    return model
 
 def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
     try:
@@ -138,15 +147,23 @@ def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
         torch.save(cpu_state, name)
     torch.distributed.barrier()
 
-def save_ds_checkpoint(model_engine, folder, epoch, args, name="checkpoint.pt"):
+def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None):
     try:
         if not os.path.exists(folder):
             os.mkdir(folder)
     except:
         pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    model_engine.save_checkpoint(name)
-    return model_engine
+    #folder = os.path.join(folder, "checkpoint_%d" % epoch)
+    model_engine.save_checkpoint(
+        folder,
+        tag = "checkpoint_%d" % epoch
+    )
+    if lora_config is not None and args.rank == 0:
+        print(lora_config)
+        lora_config["target_modules"] = list(lora_config["target_modules"])
+        with open(os.path.join(folder,"lora_config.json"), "w") as f:
+            json.dump(lora_config, f)
+    #return model_engine
 
 def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, args):
     #print(type(llava_model))
@@ -248,6 +265,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             pbar.set_description(f"loss: {total_selection_loss / total_sample:.3f}")
         log_gpu_memory_usage(model_engine.local_rank,"after one step")
     print(f"max sample size {max_sample_size} in device {model_engine.local_rank}")
+
 def eval(dataloader, model, tokenizer, args):
     model.eval()
     total_combined_loss = 0
@@ -417,6 +435,12 @@ def main():
     tokenizer, model, _, _ = load_pretrained_model(
         model_path, None, model_name, device_map = None, add_multisensory_token=True
     )
+    '''
+    print("start loading model")
+    load_ds_checkpoint(model, "ds_tmp/checkpoint_0")
+    print("successfully loaded model")
+    '''
+    #exit(0)
     log_gpu_memory_usage(args.local_rank,"after loading model")
     #device_id = torch.device(f'cuda:{args.local_rank}')
     #torch.cuda.set_device(device_id)
@@ -485,8 +509,9 @@ def main():
     #print('if the lora is enabled', args.lora_enable)
     model.requires_grad_(True)
     del model.model.vision_tower
+    lora_config = None
     if args.lora_enable:
-        model = lora_wrapper(model,args)
+        model, lora_config = lora_wrapper(model,args)
         # check trainable parameters
         model.print_trainable_parameters()
         # compatiable with deepspeed config
@@ -532,17 +557,36 @@ def main():
     loss_fn = torch.nn.CrossEntropyLoss()
     # start training
     # may be use this to avoid out of memory
+    saving_folder = f"{args.folder}_{args.lr}_patch{args.patch_size}_ds"
+    if args.add_positional_encodings:
+        saving_folder += "_pos"
+    if args.random_permute:
+        saving_folder += "_rand"
+    if args.prefiltering:
+        saving_folder += "_filter"
+        saving_folder += f"_top{args.top_k_categories}"
+        saving_folder += f"_coeff{args.filter_coeff}"
+    if args.egocentric_views:
+        saving_folder += "_ego"
+    if args.action_memory:
+        saving_folder += "_mem"
+    if args.lora_enable:
+        saving_folder += "_lora"
+    
     for epoch in range(args.num_epochs):
         if model.local_rank == 0:
             print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
         log_gpu_memory_usage(args.local_rank,"before training")
-        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+        #train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
-        # save_checkpoint(model, args.folder, epoch, args)
-        print("evaluating")
+        save_ds_checkpoint(model, args.folder, epoch, args, lora_config)
+        #print("evaluating")
+        #break
         # Jiachen TODO: update eval for your feature
-        # eval(val_dataloader, model, tokenizer, args)
+        eval(val_dataloader, model, tokenizer, args)
+        print('finish evaluation')
+        break
     
 
 if __name__ == "__main__":

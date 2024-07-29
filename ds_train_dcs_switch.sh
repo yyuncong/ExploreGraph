@@ -83,6 +83,7 @@ deepspeed_train_random_switch.py \
 --lr=1e-7 \
 --num_epochs=10 \
 --batch_size=1 \
+--patch_size=2 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --action_memory \

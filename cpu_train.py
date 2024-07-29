@@ -62,6 +62,43 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+def find_all_linear_names(model):
+    cls = torch.nn.Linear
+    lora_module_names = set()
+    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
+    for name, module in model.named_modules():
+        if any(mm_keyword in name for mm_keyword in multimodal_keywords):
+            continue
+        if isinstance(module, cls):
+            names = name.split('.')
+            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+
+    if 'lm_head' in lora_module_names: # needed for 16-bit
+        lora_module_names.remove('lm_head')
+    return list(lora_module_names)
+
+def lora_wrapper(model,args):
+    print(type(args))
+    if isinstance(args, dict):
+        lora_config = LoraConfig(
+            r = args['r'],
+            lora_alpha = args['lora_alpha'],
+            target_modules = args['target_modules'],
+            lora_dropout = args['lora_dropout'],
+            bias = args['bias'],
+            task_type = args['task_type']
+        )
+    else:
+        lora_config = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            target_modules=find_all_linear_names(model),
+            lora_dropout=args.lora_dropout,
+            bias=args.lora_bias,
+            task_type = 'CAUSAL_LM'
+        )
+    model = get_peft_model(model, lora_config)
+    return model, lora_config.to_dict()
 
 def load_checkpoint(model, args, name="checkpoint.pt"):
     checkpoint = torch.load(name, map_location="cpu")
