@@ -2,14 +2,15 @@
 #SBATCH --job-name=test-ds
 #SBATCH --output=log/dcs_ds-%j.txt
 #SBATCH --error=log/dcs_ds-%j.err
-#SBATCH --time=05:00:00
+#SBATCH --time=02:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=3
+#SBATCH --nodes=6
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
-source ~/.bashrc_dcs
-conda activate /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3/envs/jc-eqa
+#source ~/.bashrc_dcs
+#conda activate /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3/envs/jc-eqa
 #conda activate jc-eqa
+conda activate eqa
 
 
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
@@ -51,7 +52,7 @@ echo $NUM_GPUS_PER_NODE
 # TODO: set up deepspeed args
 # use train_micro_batch_size_per_gpu to set up dataloader
 # zero3 offload has unsolved problems
-config_json="./ds_cfg/zero3.json"
+config_json="./ds_cfg/zero2.json"
 ZERO_STAGE=0
 DEEPSPEED_ARGS=" \
     --deepspeed \

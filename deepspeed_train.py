@@ -125,7 +125,11 @@ def load_ds_checkpoint(model,checkpoint_dir):
     # this returns a model unwrapped lora
     from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
     [ckpt_dir, tag] = checkpoint_dir.split('/')
-    state_dict = get_fp32_state_dict_from_zero_checkpoint(ckpt_dir, tag)
+    state_dict = get_fp32_state_dict_from_zero_checkpoint(
+        ckpt_dir, 
+        tag, 
+        exclude_frozen_parameters = True
+    )
     if "lora_config.json" in os.listdir(ckpt_dir):
         with open(os.path.join(ckpt_dir, "lora_config.json"), 'r') as f:
             lora_config = json.load(f)
@@ -156,7 +160,8 @@ def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None):
     #folder = os.path.join(folder, "checkpoint_%d" % epoch)
     model_engine.save_checkpoint(
         folder,
-        tag = "checkpoint_%d" % epoch
+        tag = "checkpoint_%d" % epoch,
+        exclude_frozen_parameters = True
     )
     if lora_config is not None and args.rank == 0:
         print(lora_config)
@@ -174,7 +179,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
     
     torch.cuda.empty_cache()
         
-    pbar = tqdm(dataloader, disable=(model_engine.local_rank != 0))
+    pbar = tqdm(dataloader, disable=(args.rank != 0))
     total_combined_loss = 0
     total_filter_loss = 0
     total_selection_loss = 0
@@ -275,7 +280,7 @@ def eval(dataloader, model, tokenizer, args):
     total_selection_loss = 0
     total_filter_loss = 0
     total_sample = 0
-    pbar = tqdm(dataloader)
+    pbar = tqdm(dataloader, disable=(args.rank != 0))
     with torch.no_grad():
         for sample in pbar:
             # calculate selection loss
@@ -499,12 +504,20 @@ def main():
         collate_fn=train_total_dataset.collate_wrapper,
     )
     
+    val_sampler = DistributedSampler(
+        val_dataset,
+        num_replicas=args.world_size,
+        rank=args.rank,
+        shuffle=True,
+        drop_last=False,
+    )
+    
     val_dataloader = DataLoader(
         val_dataset,
-        batch_size=1,
-        shuffle=True,
+        batch_size=2,
         pin_memory=True,
-        num_workers=1,
+        num_workers=8,
+        sampler = val_sampler,
         collate_fn=val_total_dataset.collate_wrapper,
     )
 
@@ -576,7 +589,7 @@ def main():
     if args.lora_enable:
         saving_folder += "_lora"
     for epoch in range(args.num_epochs):
-        if model.local_rank == 0:
+        if args.rank == 0:
             print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
         log_gpu_memory_usage(args.local_rank,"before training")
@@ -586,7 +599,8 @@ def main():
         #print("evaluating")
         #break
         # Jiachen TODO: update eval for your feature
-        # eval(val_dataloader, model, tokenizer, args)
+        eval(val_dataloader, model, tokenizer, args)
+        if args.rank == 0:
         print('finish evaluation')
     
 
