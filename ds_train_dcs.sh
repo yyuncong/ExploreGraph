@@ -2,9 +2,9 @@
 #SBATCH --job-name=test-ds
 #SBATCH --output=log/dcs_ds-%j.txt
 #SBATCH --error=log/dcs_ds-%j.err
-#SBATCH --time=06:00:00
+#SBATCH --time=02:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=1
+#SBATCH --nodes=32
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 source ~/.bashrc_dcs
@@ -77,13 +77,10 @@ srun $CMD \
 deepspeed_train.py \
 --folder ds_tmp \
 --random_permute \
---prefiltering \
---filter_coeff=0.3 \
---top_k_categories=10 \
---lr=1e-7 \
---num_epochs=10 \
+--lr=1e-6 \
+--num_epochs=115 \
 --batch_size=1 \
+--patch_size=2 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
---action_memory \
 --lora_enable

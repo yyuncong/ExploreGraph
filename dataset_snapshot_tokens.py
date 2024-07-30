@@ -573,14 +573,15 @@ class ExploreDataset(Dataset):
             print('shuffled keep indices', keep_indices)
             print('shuffled snapshot classes', snapshot_classes)
             """
+        
         text += "These are the snapshots:\n"
         for i, class_names in enumerate(snapshot_classes):
             text += f"snapshot {i} "
-            # class_names_set = set(class_names)
-            # class_names_list = list(class_names_set)
-            # sorted_class_names = sorted(class_names_list)
-            # for class_name in sorted_class_names:
-            #     text += f"{class_name}, "
+            class_names_set = set(class_names)
+            class_names_list = list(class_names_set)
+            sorted_class_names = sorted(class_names_list)
+            for class_name in sorted_class_names:
+                text += f"{class_name}, "
             for _ in range(self.num_visual_tokens):
                 text += "<scene>"
             text += " / "
@@ -668,20 +669,20 @@ class ExploreDataset(Dataset):
         # print("scene_feature", scene_feature.shape)
 
         
-        if len(scene_feature) // self.num_visual_tokens > 90:
+        if len(scene_feature) // self.num_visual_tokens > 45:
             self.too_many_objects_indices.add(idx)
             if self.split == "train":
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
         
         step["scene_feature"] = scene_feature
-        '''
+        
         if self.max_length <= len(text):
             self.too_many_objects_indices.add(idx)
             if self.split == "train":
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
-        '''
+        
         # assert self.max_length > len(text)
         # assert self.max_length > len(
         #     scene_feature

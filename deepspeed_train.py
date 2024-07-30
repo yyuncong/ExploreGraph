@@ -277,12 +277,12 @@ def eval(dataloader, model, tokenizer, args):
         for sample in pbar:
             # calculate selection loss
             feature_dict = EasyDict(
-                scene_feature=sample.scene_feature.to("cpu"),
+                scene_feature=sample.scene_feature.to("cuda"),
                 scene_insert_loc=sample.scene_insert_loc,
                 scene_length=sample.scene_length,
             )
-            input_ids = sample.input_ids.to("cpu")
-            attention_mask = sample.attention_mask.to("cpu")
+            input_ids = sample.input_ids.to("cuda")
+            attention_mask = sample.attention_mask.to("cuda")
             labels = input_ids.clone()
             answer_indices = torch.where(labels == 22550)[1]
 
@@ -290,7 +290,7 @@ def eval(dataloader, model, tokenizer, args):
                 labels[j, : answer_idx + 2] = -100
 
             labels[labels == tokenizer.pad_token_id] = -100
-            with torch.autocast(device_type="cpu"):
+            with torch.autocast(device_type="cuda"):
                 outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -302,8 +302,8 @@ def eval(dataloader, model, tokenizer, args):
             combined_loss = selection_loss
             # calculate filter loss
             if args.prefiltering:
-                filter_input_ids = sample.filter_input_ids.to("cpu")
-                filter_attention_mask = sample.filter_attention_mask.to("cpu")
+                filter_input_ids = sample.filter_input_ids.to("cuda")
+                filter_attention_mask = sample.filter_attention_mask.to("cuda")
                 filter_labels = filter_input_ids.clone()
                 filter_answer_indices = torch.where(filter_labels == 22550)[1]
                 for j, answer_idx in enumerate(filter_answer_indices):
@@ -317,7 +317,7 @@ def eval(dataloader, model, tokenizer, args):
                     )
                 )
                 """
-                with torch.autocase(device_type="cpu"):
+                with torch.autocase(device_type="cuda"):
                     filter_outputs = model(
                         input_ids=filter_input_ids,
                         attention_mask=filter_attention_mask,
@@ -460,7 +460,7 @@ def main():
         add_positional_encodings=args.add_positional_encodings,
         patch_size=args.patch_size,
         tokenizer=tokenizer,
-        max_length=4096,
+        max_length=2048,
     )
     val_total_dataset = ExploreDataset(
         scene_path=args.scene_path,
@@ -473,7 +473,7 @@ def main():
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         patch_size=args.patch_size,
-        max_length=4096,
+        max_length=2048,
         split="val",
     )
     train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)
@@ -578,15 +578,14 @@ def main():
             print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
         log_gpu_memory_usage(args.local_rank,"before training")
-        #train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
-        save_ds_checkpoint(model, args.folder, epoch, args, lora_config)
+        save_ds_checkpoint(model, saving_folder, epoch, args, lora_config)
         #print("evaluating")
         #break
         # Jiachen TODO: update eval for your feature
-        eval(val_dataloader, model, tokenizer, args)
+        # eval(val_dataloader, model, tokenizer, args)
         print('finish evaluation')
-        break
     
 
 if __name__ == "__main__":

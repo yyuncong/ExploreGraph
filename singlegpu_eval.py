@@ -472,7 +472,7 @@ def main():
         saving_folder += "_lora"
     print(saving_folder)
     #args.folder = saving_folder
-    args.folder = "ds_tmp"
+    #args.folder = "ds_tmp"
     
     if args.deepspeed_enabled:
         saving_folder = os.path.join(args.folder,f"checkpoint_{args.ckpt_index}")
