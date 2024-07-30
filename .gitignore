@@ -170,3 +170,6 @@ test.py
 unit_test.py
 outputs/
 ds_tmp/
+ds_tmp_1e-06_patch2_ds_rand_ego/
+ds_tmp_1e-06_patch2_ds_rand_ego_lora/
+log/

@@ -191,7 +191,10 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         input_ids = sample.input_ids.to("cuda")#.to("cpu")
         attention_mask = sample.attention_mask.to("cuda")#.to("cpu")
         max_sample_size = max(max_sample_size, input_ids.shape[1])
+        '''
         print(f"Current max sample size {max_sample_size} in device {model_engine.local_rank}")
+        print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        '''
         labels = input_ids.clone()
         answer_indices = torch.where(labels == 22550)[1]
 
@@ -528,7 +531,7 @@ def main():
     '''
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad], 
-        lr=1e-6
+        lr=args.lr
     )
     model, optimizer, _, _ = deepspeed.initialize(
         args = args,
@@ -572,7 +575,6 @@ def main():
         saving_folder += "_mem"
     if args.lora_enable:
         saving_folder += "_lora"
-    
     for epoch in range(args.num_epochs):
         if model.local_rank == 0:
             print("Start training epoch %d" % epoch)

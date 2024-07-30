@@ -394,6 +394,7 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
+    parser.add_argument("--patch_size", type=int, default=2)
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -436,6 +437,7 @@ def main():
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
+        patch_size = args.patch_size,
         max_length=2048,
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)

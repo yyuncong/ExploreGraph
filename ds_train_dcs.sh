@@ -2,9 +2,9 @@
 #SBATCH --job-name=test-ds
 #SBATCH --output=log/dcs_ds-%j.txt
 #SBATCH --error=log/dcs_ds-%j.err
-#SBATCH --time=02:00:00
+#SBATCH --time=05:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=32
+#SBATCH --nodes=3
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 source ~/.bashrc_dcs
@@ -51,7 +51,7 @@ echo $NUM_GPUS_PER_NODE
 # TODO: set up deepspeed args
 # use train_micro_batch_size_per_gpu to set up dataloader
 # zero3 offload has unsolved problems
-config_json="./ds_cfg/zero2.json"
+config_json="./ds_cfg/zero3.json"
 ZERO_STAGE=0
 DEEPSPEED_ARGS=" \
     --deepspeed \
@@ -75,7 +75,7 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ds_tmp \
+--folder ds_zero3 \
 --random_permute \
 --lr=1e-6 \
 --num_epochs=115 \

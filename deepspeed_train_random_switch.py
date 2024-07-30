@@ -452,9 +452,11 @@ def main():
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     log_gpu_memory_usage(args.local_rank,"before loading model")
-    tokenizer, model, _, _ = load_pretrained_model(
+    tokenizer, model, image_processor, _ = load_pretrained_model(
         model_path, None, model_name, device_map = None, add_multisensory_token=True
     )
+    # mannully del image_processor
+    del image_processor
     log_gpu_memory_usage(args.local_rank,"after loading model")
     #device_id = torch.device(f'cuda:{args.local_rank}')
     #torch.cuda.set_device(device_id)
@@ -523,8 +525,9 @@ def main():
     #print('if the lora is enabled', args.lora_enable)
     model.requires_grad_(True)
     del model.model.vision_tower
+    lora_config = None
     if args.lora_enable:
-        model = lora_wrapper(model,args)
+        model, lora_config = lora_wrapper(model,args)
         # check trainable parameters
         model.print_trainable_parameters()
         # compatiable with deepspeed config
@@ -594,7 +597,7 @@ def main():
         log_gpu_memory_usage(args.local_rank,"before training")
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
-        # save_checkpoint(model, saving_folder, epoch, args)
+        save_checkpoint(model, saving_folder, epoch, args, lora_config)
         print("evaluating")
         # Jiachen TODO: update eval for your feature
         # eval(val_dataloader, model, tokenizer, args)
