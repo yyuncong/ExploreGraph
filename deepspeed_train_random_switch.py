@@ -54,7 +54,7 @@ import logging
 from monitor import log_gpu_memory_usage
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARN,
     format="%(asctime)s %(message)s",
     datefmt="%m/%d %I:%M:%S",
 )
@@ -63,6 +63,8 @@ from tqdm import tqdm
 import torch.nn.functional as F
 import json
 from loader import *
+from deepspeed.utils import logger as deepspeed_logger
+deepspeed_logger.setLevel(logging.WARN)
 
 def set_seed(seed):
     random.seed(seed)
@@ -110,7 +112,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             input_ids = sample.input_ids.to("cuda")#.to("cpu")
             attention_mask = sample.attention_mask.to("cuda")#.to("cpu")
             max_sample_size = max(max_sample_size, input_ids.shape[1])
-            print(f"Current max sample size {max_sample_size} in device {model_engine.local_rank}")
+            #print(f"Current max sample size {max_sample_size} in device {model_engine.local_rank}")
             labels = input_ids.clone()
             answer_indices = torch.where(labels == 22550)[1]
 
@@ -445,7 +447,7 @@ def main():
     if args.lora_enable:
         model, lora_config = lora_wrapper(model,args)
         # check trainable parameters
-        model.print_trainable_parameters()
+        # model.print_trainable_parameters()
         # compatiable with deepspeed config
         model.to(torch.float16)
     #log_gpu_memory_usage(args.local_rank,"after wrapping model with lora")

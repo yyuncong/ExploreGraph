@@ -116,7 +116,6 @@ def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None, ex
         exclude_frozen_parameters = exclude_frozen_parameters
     )
     if lora_config is not None and args.rank == 0:
-        print(lora_config)
         lora_config["target_modules"] = list(lora_config["target_modules"])
         with open(os.path.join(folder,"lora_config.json"), "w") as f:
             json.dump(lora_config, f)

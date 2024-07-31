@@ -4,7 +4,7 @@
 #SBATCH --error=log/dcs_ds-%j.err
 #SBATCH --time=02:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=1
+#SBATCH --nodes=16
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs

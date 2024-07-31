@@ -63,6 +63,8 @@ import torch.nn.functional as F
 import json
 from loader import *
 
+from deepspeed.utils import logger as deepspeed_logger
+deepspeed_logger.setLevel(logging.WARN)
 
 def set_seed(seed):
     random.seed(seed)
@@ -369,7 +371,6 @@ def main():
     model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
-    log_gpu_memory_usage(args.local_rank,"before loading model")
     tokenizer, model, _, _ = load_pretrained_model(
         model_path, None, model_name, device_map = None, add_multisensory_token=True
     )
@@ -458,7 +459,7 @@ def main():
     if args.lora_enable:
         model, lora_config = lora_wrapper(model,args)
         # check trainable parameters
-        model.print_trainable_parameters()
+        # model.print_trainable_parameters()
         # compatiable with deepspeed config
         model.to(torch.float16)
     #log_gpu_memory_usage(args.local_rank,"after wrapping model with lora")
