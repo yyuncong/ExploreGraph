@@ -19,7 +19,6 @@ from easydict import EasyDict
 from accelerate import load_checkpoint_and_dispatch
 import deepspeed
 from peft import LoraConfig, get_peft_model
-from distributed import init_distributed_device, world_info_from_env
 
 import numpy as np
 import torch
@@ -62,6 +61,7 @@ from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
 import json
+from loader import *
 
 
 def set_seed(seed):
@@ -73,102 +73,6 @@ def set_seed(seed):
 # TODO:
 # 1. initialize lora config
 # 2. use lora to wrap up the model
-def find_all_linear_names(model):
-    cls = torch.nn.Linear
-    lora_module_names = set()
-    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
-    for name, module in model.named_modules():
-        if any(mm_keyword in name for mm_keyword in multimodal_keywords):
-            continue
-        if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
-
-    if 'lm_head' in lora_module_names: # needed for 16-bit
-        lora_module_names.remove('lm_head')
-    return list(lora_module_names)
-
-def lora_wrapper(model,args):
-    if isinstance(args, dict):
-        lora_config = LoraConfig(
-            r = args['r'],
-            lora_alpha = args['lora_alpha'],
-            target_modules = args['target_modules'],
-            lora_dropout = args['lora_dropout'],
-            bias = args['bias'],
-            task_type = args['task_type']
-        )
-    else:
-        lora_config = LoraConfig(
-            r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            target_modules=find_all_linear_names(model),
-            lora_dropout=args.lora_dropout,
-            bias=args.lora_bias,
-            task_type = 'CAUSAL_LM'
-        )
-    model = get_peft_model(model, lora_config)
-    return model, lora_config.to_dict()
-     
-
-def load_checkpoint(model, args, name="checkpoint.pt"):
-    checkpoint = torch.load(name, map_location="cpu")
-    # wait until checkpoints in all processes are loaded
-    torch.distributed.barrier()
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT):
-        model.load_state_dict(checkpoint, True)
-    del checkpoint
-    torch.cuda.empty_cache()
-    torch.distributed.barrier()
-
-def load_ds_checkpoint(model,checkpoint_dir):
-    # this returns a model unwrapped lora
-    from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
-    [ckpt_dir, tag] = checkpoint_dir.split('/')
-    state_dict = get_fp32_state_dict_from_zero_checkpoint(
-        ckpt_dir, 
-        tag, 
-        exclude_frozen_parameters = True
-    )
-    if "lora_config.json" in os.listdir(ckpt_dir):
-        with open(os.path.join(ckpt_dir, "lora_config.json"), 'r') as f:
-            lora_config = json.load(f)
-        model, _ = lora_wrapper(model,lora_config)
-    model.load_state_dict(state_dict)
-    return model
-
-def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
-        cpu_state = model.state_dict()
-    if args.rank == 0:
-        torch.save(cpu_state, name)
-    torch.distributed.barrier()
-
-def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    #folder = os.path.join(folder, "checkpoint_%d" % epoch)
-    model_engine.save_checkpoint(
-        folder,
-        tag = "checkpoint_%d" % epoch,
-        exclude_frozen_parameters = True
-    )
-    if lora_config is not None and args.rank == 0:
-        print(lora_config)
-        lora_config["target_modules"] = list(lora_config["target_modules"])
-        with open(os.path.join(folder,"lora_config.json"), "w") as f:
-            json.dump(lora_config, f)
-    #return model_engine
 
 def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, args):
     #print(type(llava_model))
@@ -207,7 +111,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             labels[j, : answer_idx + 2] = -100
 
         labels[labels == tokenizer.pad_token_id] = -100
-        log_gpu_memory_usage(model_engine.local_rank,"after loading data")
+        #log_gpu_memory_usage(model_engine.local_rank,"after loading data")
         optimizer.zero_grad()
 
         with torch.autocast(device_type="cuda"):
@@ -219,14 +123,14 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
                 output_hidden_states=True,
             )
         selection_loss = outputs.loss
-        log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
+        #log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
         
         del outputs
         torch.cuda.empty_cache()
         #print("if the loss is kept", selection_loss)
-        log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
+        #log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
         model_engine.backward(selection_loss)
-        log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
+        #log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
         #total_selection_loss += selection_loss.item()
         #total_selection_sample += input_ids.shape[0]
         # Jiachen TODO: get the extra filter outputs with everything you added
@@ -254,25 +158,25 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             filter_loss = filter_outputs.loss * args.filter_coeff
             #combined_loss += filter_loss
             del filter_outputs
-            log_gpu_memory_usage(model_engine.local_rank,"remove filter cache")
+            #log_gpu_memory_usage(model_engine.local_rank,"remove filter cache")
             model_engine.backward(filter_loss)
-            log_gpu_memory_usage(model_engine.local_rank,"after filter backward pass")
+            #log_gpu_memory_usage(model_engine.local_rank,"after filter backward pass")
         #combined_loss.backward()
         #optimizer.step()
         #model_engine.backward(combined_loss)
         #log_gpu_memory_usage(model_engine.local_rank,"after backward")
         model_engine.step()
-        total_selection_loss += selection_loss.item()
+        total_selection_loss += selection_loss.item()*input_ids.shape[0]
         total_sample += input_ids.shape[0]
         if args.prefiltering:
-            total_filter_loss += filter_loss.item()
+            total_filter_loss += filter_loss.item()*input_ids.shape[0]
             pbar.set_description(
                 f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
             )
         else:
             pbar.set_description(f"loss: {total_selection_loss / total_sample:.3f}")
-        log_gpu_memory_usage(model_engine.local_rank,"after one step")
-    print(f"max sample size {max_sample_size} in device {model_engine.local_rank}")
+        #log_gpu_memory_usage(model_engine.local_rank,"after one step")
+    #print(f"max sample size {max_sample_size} in device {args.rank}")
 
 def eval(dataloader, model, tokenizer, args):
     model.eval()
@@ -307,7 +211,7 @@ def eval(dataloader, model, tokenizer, args):
                     output_hidden_states=True,
                 )
             selection_loss = outputs.loss
-            combined_loss = selection_loss
+            combined_loss = selection_loss.item()
             # calculate filter loss
             if args.prefiltering:
                 filter_input_ids = sample.filter_input_ids.to("cuda")
@@ -325,7 +229,7 @@ def eval(dataloader, model, tokenizer, args):
                     )
                 )
                 """
-                with torch.autocase(device_type="cuda"):
+                with torch.autocast(device_type="cuda"):
                     filter_outputs = model(
                         input_ids=filter_input_ids,
                         attention_mask=filter_attention_mask,
@@ -333,18 +237,43 @@ def eval(dataloader, model, tokenizer, args):
                         feature_dict=None,
                         output_hidden_states=True,
                     )
-                filter_loss = filter_outputs.loss
-                combined_loss += filter_loss
-            total_combined_loss += combined_loss.item()
-            total_selection_loss += selection_loss.item()
+                filter_loss = filter_outputs.loss*args.filter_coeff
+                combined_loss += filter_loss.item()
+            total_combined_loss += combined_loss*input_ids.shape[0]
+            total_selection_loss += selection_loss.item()*input_ids.shape[0]
             total_sample += input_ids.shape[0]
             if args.prefiltering:
-                total_filter_loss += filter_loss.item()
+                total_filter_loss += filter_loss.item()*input_ids.shape[0]
                 pbar.set_description(
                     f"loss: {total_combined_loss / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
                 )
             else:
                 pbar.set_description(f"loss: {total_combined_loss / total_sample:.3f}")
+    if args.rank == 0:
+        if args.prefiltering:
+            print(
+                f"loss: {(total_combined_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+            )
+        else:
+            print(f"loss: {total_selection_loss / total_sample:.3f}")
+
+def format_saving_folder(args):
+    saving_folder = f"{args.folder}_{args.lr}_patch{args.patch_size}_ds"
+    if args.add_positional_encodings:
+        saving_folder += "_pos"
+    if args.random_permute:
+        saving_folder += "_rand"
+    if args.prefiltering:
+        saving_folder += "_filter"
+        saving_folder += f"_top{args.top_k_categories}"
+        saving_folder += f"_coeff{args.filter_coeff}"
+    if args.egocentric_views:
+        saving_folder += "_ego"
+    if args.action_memory:
+        saving_folder += "_mem"
+    if args.lora_enable:
+        saving_folder += "_lora"
+    return saving_folder
 
 def main():
     parser = argparse.ArgumentParser()
@@ -436,7 +365,8 @@ def main():
     # device_id = init_distributed_device(args)
 
     # wrap up the model with deepspeed
-    model_path = "liuhaotian/llava-v1.5-7b"
+    #model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     log_gpu_memory_usage(args.local_rank,"before loading model")
@@ -449,11 +379,10 @@ def main():
     print("successfully loaded model")
     '''
     #exit(0)
-    log_gpu_memory_usage(args.local_rank,"after loading model")
     #device_id = torch.device(f'cuda:{args.local_rank}')
     #torch.cuda.set_device(device_id)
     model = model.to('cpu')
-    log_gpu_memory_usage(args.local_rank,"after moving model to cpu")
+    #log_gpu_memory_usage(args.local_rank,"after moving model to cpu")
     #print("if the model is correctly wraped?", type(model_engine))
     #print("local rank is", model_engine.local_rank)
     # Jiachen TODO: pass your parameter in the dataset file
@@ -503,7 +432,7 @@ def main():
         sampler=sampler,
         collate_fn=train_total_dataset.collate_wrapper,
     )
-    
+    '''
     val_sampler = DistributedSampler(
         val_dataset,
         num_replicas=args.world_size,
@@ -511,13 +440,13 @@ def main():
         shuffle=True,
         drop_last=False,
     )
-    
+    '''
     val_dataloader = DataLoader(
         val_dataset,
-        batch_size=2,
+        batch_size=4,
+        shuffle=False,
         pin_memory=True,
-        num_workers=8,
-        sampler = val_sampler,
+        num_workers=1,
         collate_fn=val_total_dataset.collate_wrapper,
     )
 
@@ -532,16 +461,11 @@ def main():
         model.print_trainable_parameters()
         # compatiable with deepspeed config
         model.to(torch.float16)
-    log_gpu_memory_usage(args.local_rank,"after wrapping model with lora")
+    #log_gpu_memory_usage(args.local_rank,"after wrapping model with lora")
     #model.train()
     # TODO: initialize the deepspedd engine here
     # figure out where args/model_parameters come from
     # count the number of parameters that requires grad
-    '''
-    def count_parameters(model):
-        return sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print("the used parameters in deepspeed", count_parameters(model))
-    '''
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad], 
         lr=args.lr
@@ -557,7 +481,7 @@ def main():
     #)
     # del the raw model
     # del model
-    log_gpu_memory_usage(args.local_rank,"after initializing deepspeed")
+    #log_gpu_memory_usage(args.local_rank,"after initializing deepspeed")
     for p in model.parameters():
         if int(str(p.device)[-1]) != int(model.local_rank):
             print(f"current local rank {model.local_rank} and parameter device {p.device}")
@@ -573,35 +497,21 @@ def main():
     loss_fn = torch.nn.CrossEntropyLoss()
     # start training
     # may be use this to avoid out of memory
-    saving_folder = f"{args.folder}_{args.lr}_patch{args.patch_size}_ds"
-    if args.add_positional_encodings:
-        saving_folder += "_pos"
-    if args.random_permute:
-        saving_folder += "_rand"
-    if args.prefiltering:
-        saving_folder += "_filter"
-        saving_folder += f"_top{args.top_k_categories}"
-        saving_folder += f"_coeff{args.filter_coeff}"
-    if args.egocentric_views:
-        saving_folder += "_ego"
-    if args.action_memory:
-        saving_folder += "_mem"
-    if args.lora_enable:
-        saving_folder += "_lora"
+    saving_folder = format_saving_folder(args)
     for epoch in range(args.num_epochs):
         if args.rank == 0:
             print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
-        log_gpu_memory_usage(args.local_rank,"before training")
-        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+        #log_gpu_memory_usage(args.local_rank,"before training")
+        #train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
-        save_ds_checkpoint(model, saving_folder, epoch, args, lora_config)
+        save_ds_checkpoint(model, saving_folder, epoch, args, lora_config, True)
         #print("evaluating")
         #break
+        if args.rank == 0:
+            print("Start evaluating epoch %d" % epoch)
         # Jiachen TODO: update eval for your feature
         eval(val_dataloader, model, tokenizer, args)
-        if args.rank == 0:
-        print('finish evaluation')
     
 
 if __name__ == "__main__":

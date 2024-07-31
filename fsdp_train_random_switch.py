@@ -131,7 +131,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
 
             selection_loss = outputs.loss
             combined_loss = selection_loss
-            total_selection_loss += selection_loss.item()
+            total_selection_loss += selection_loss.item()*input_ids.shape[0]
             total_selection_sample += input_ids.shape[0]
         else:
             filter_input_ids = sample.filter_input_ids.to("cuda")
@@ -154,7 +154,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                 )
             filter_loss = filter_outputs.loss * args.filter_coeff
             combined_loss = filter_loss
-            total_filter_loss += filter_loss.item()
+            total_filter_loss += filter_loss.item()*filter_input_ids.shape[0]
             total_filter_sample += filter_input_ids.shape[0]
 
         combined_loss.backward()
@@ -220,10 +220,10 @@ def eval(dataloader, model, tokenizer, args):
                     feature_dict=None,
                     output_hidden_states=True,
                 )
-            filter_loss = filter_outputs.loss
+            filter_loss = filter_outputs.loss*args.filter_coeff
             # total_combined_loss += combined_loss.item()
-            total_selection_loss += selection_loss.item()
-            total_filter_loss += filter_loss.item()
+            total_selection_loss += selection_loss.item()*input_ids.shape[0]
+            total_filter_loss += filter_loss.item()*input_ids.shape[0]
             total_sample += input_ids.shape[0]
             pbar.set_description(
                 f"loss: {(total_selection_loss + total_filter_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"

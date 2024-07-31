@@ -118,16 +118,20 @@ def load_checkpoint(model, args, name="checkpoint.pt"):
     torch.cuda.empty_cache()
     torch.distributed.barrier()
 
-def load_ds_checkpoint(model,checkpoint_dir):
+def load_ds_checkpoint(model,saving_folder, ckpt_indx):
     # this returns a model unwrapped lora
     from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
-    [ckpt_dir, tag] = checkpoint_dir.split('/')
-    state_dict = get_fp32_state_dict_from_zero_checkpoint(ckpt_dir, tag)
-    if "lora_config.json" in os.listdir(ckpt_dir):
-        with open(os.path.join(ckpt_dir, "lora_config.json"), 'r') as f:
+    tag = "checkpoint_%d" % ckpt_indx
+    state_dict = get_fp32_state_dict_from_zero_checkpoint(
+        saving_folder, 
+        tag, 
+        exclude_frozen_parameters = True
+    )
+    if "lora_config.json" in os.listdir(os.path.join(saving_folder)):
+        with open(os.path.join(saving_folder, "lora_config.json"), 'r') as f:
             lora_config = json.load(f)
         model, _ = lora_wrapper(model,lora_config)
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict = False)
     return model
 
 
@@ -154,14 +158,15 @@ def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None):
     #folder = os.path.join(folder, "checkpoint_%d" % epoch)
     model_engine.save_checkpoint(
         folder,
-        tag = "checkpoint_%d" % epoch
+        tag = "checkpoint_%d" % epoch,
+        exclude_frozen_parameters = True
     )
     if lora_config is not None and args.rank == 0:
         print(lora_config)
         lora_config["target_modules"] = list(lora_config["target_modules"])
         with open(os.path.join(folder,"lora_config.json"), "w") as f:
             json.dump(lora_config, f)
-
+    #return model_engine
 
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
     llava_model = llava_model.train()
@@ -413,6 +418,8 @@ def main():
     del model.model.vision_tower
     
     # try load ds model
+    load_ds_checkpoint(model,"ckpts/ds_zero2_1e-06_patch2_ds_rand_filter_top15_coeff0.3_ego_lora",0)
+    print('successfully load checkpoint!')
     model.train()
     # from dataset import (
     #     SCENE_TOKEN

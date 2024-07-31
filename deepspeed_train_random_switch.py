@@ -62,7 +62,7 @@ from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
 import json
-
+from loader import *
 
 def set_seed(seed):
     random.seed(seed)
@@ -82,98 +82,6 @@ def set_seed(seed):
 # TODO:
 # 1. initialize lora config
 # 2. use lora to wrap up the model
-def find_all_linear_names(model):
-    cls = torch.nn.Linear
-    lora_module_names = set()
-    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
-    for name, module in model.named_modules():
-        if any(mm_keyword in name for mm_keyword in multimodal_keywords):
-            continue
-        if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
-
-    if 'lm_head' in lora_module_names: # needed for 16-bit
-        lora_module_names.remove('lm_head')
-    return list(lora_module_names)
-
-def lora_wrapper(model,args):
-    if isinstance(args, dict):
-        lora_config = LoraConfig(
-            r = args['r'],
-            lora_alpha = args['lora_alpha'],
-            target_modules = args['target_modules'],
-            lora_dropout = args['lora_dropout'],
-            bias = args['bias'],
-            task_type = args['task_type']
-        )
-    else:
-        lora_config = LoraConfig(
-            r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            target_modules=find_all_linear_names(model),
-            lora_dropout=args.lora_dropout,
-            bias=args.lora_bias,
-            task_type = 'CAUSAL_LM'
-        )
-    model = get_peft_model(model, lora_config)
-    return model, lora_config.to_dict()
-     
-
-def load_checkpoint(model, args, name="checkpoint.pt"):
-    checkpoint = torch.load(name, map_location="cpu")
-    # wait until checkpoints in all processes are loaded
-    torch.distributed.barrier()
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT):
-        model.load_state_dict(checkpoint, True)
-    del checkpoint
-    torch.cuda.empty_cache()
-    torch.distributed.barrier()
-
-def load_ds_checkpoint(model,checkpoint_dir):
-    # this returns a model unwrapped lora
-    from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
-    [ckpt_dir, tag] = checkpoint_dir.split('/')
-    state_dict = get_fp32_state_dict_from_zero_checkpoint(ckpt_dir, tag)
-    if "lora_config.json" in os.listdir(ckpt_dir):
-        with open(os.path.join(ckpt_dir, "lora_config.json"), 'r') as f:
-            lora_config = json.load(f)
-        model, _ = lora_wrapper(model,lora_config)
-    model.load_state_dict(state_dict)
-    return model
-
-def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
-        cpu_state = model.state_dict()
-    if args.rank == 0:
-        torch.save(cpu_state, name)
-    torch.distributed.barrier()
-
-def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    #folder = os.path.join(folder, "checkpoint_%d" % epoch)
-    model_engine.save_checkpoint(
-        folder,
-        tag = "checkpoint_%d" % epoch
-    )
-    if lora_config is not None and args.rank == 0:
-        print(lora_config)
-        lora_config["target_modules"] = list(lora_config["target_modules"])
-        with open(os.path.join(folder,"lora_config.json"), "w") as f:
-            json.dump(lora_config, f)
-    #return model_engine
-
 def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, args):
     #print(type(llava_model))
     #print(type(llava_model.train()))
@@ -236,7 +144,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
             model_engine.backward(selection_loss)
             log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
-            total_selection_loss += selection_loss.item()
+            total_selection_loss += selection_loss.item()*input_ids.shape[0]
             total_selection_sample += input_ids.shape[0]
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
@@ -266,7 +174,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             log_gpu_memory_usage(model_engine.local_rank,"remove filter cache")
             model_engine.backward(filter_loss)
             log_gpu_memory_usage(model_engine.local_rank,"after filter backward pass")
-            total_filter_loss += filter_loss.item()
+            total_filter_loss += filter_loss.item()*input_ids.shape[0]
             total_filter_sample += filter_input_ids.shape[0]
         #combined_loss.backward()
         #optimizer.step()
@@ -286,6 +194,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         )
         log_gpu_memory_usage(model_engine.local_rank,"after one step")
         print(f"max sample size {max_sample_size} in device {model_engine.local_rank}")
+        
 def eval(dataloader, model, tokenizer, args):
     model.eval()
     total_combined_loss = 0
@@ -319,7 +228,7 @@ def eval(dataloader, model, tokenizer, args):
                     output_hidden_states=True,
                 )
             selection_loss = outputs.loss
-            combined_loss = selection_loss
+            combined_loss = selection_loss.item()
             # calculate filter loss
             if args.prefiltering:
                 filter_input_ids = sample.filter_input_ids.to("cuda")
@@ -337,7 +246,7 @@ def eval(dataloader, model, tokenizer, args):
                     )
                 )
                 """
-                with torch.autocase(device_type="cuda"):
+                with torch.autocast(device_type="cuda"):
                     filter_outputs = model(
                         input_ids=filter_input_ids,
                         attention_mask=filter_attention_mask,
@@ -345,13 +254,13 @@ def eval(dataloader, model, tokenizer, args):
                         feature_dict=None,
                         output_hidden_states=True,
                     )
-                filter_loss = filter_outputs.loss
-                combined_loss += filter_loss
-            total_combined_loss += combined_loss.item()
-            total_selection_loss += selection_loss.item()
+                filter_loss = filter_outputs.loss*args.filter_coeff
+                combined_loss += filter_loss.item()
+            total_combined_loss += combined_loss.item()*input_ids.shape[0]
+            total_selection_loss += selection_loss.item()*input_ids.shape[0]
             total_sample += input_ids.shape[0]
             if args.prefiltering:
-                total_filter_loss += filter_loss.item()
+                total_filter_loss += filter_loss.item()*input_ids.shape[0]
                 pbar.set_description(
                     f"loss: {total_combined_loss / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
                 )
@@ -448,7 +357,8 @@ def main():
     # device_id = init_distributed_device(args)
 
     # wrap up the model with deepspeed
-    model_path = "liuhaotian/llava-v1.5-7b"
+    #model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     log_gpu_memory_usage(args.local_rank,"before loading model")
@@ -591,16 +501,17 @@ def main():
     # start training
     # may be use this to avoid out of memory
     for epoch in range(args.num_epochs):
-        if model.local_rank == 0:
+        if args.rank == 0:
             print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
         log_gpu_memory_usage(args.local_rank,"before training")
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
-        save_checkpoint(model, saving_folder, epoch, args, lora_config)
-        print("evaluating")
+        save_checkpoint(model, saving_folder, epoch, args, lora_config, True)
+        if args.rank == 0:
+            print("evaluating")
         # Jiachen TODO: update eval for your feature
-        # eval(val_dataloader, model, tokenizer, args)
+        eval(val_dataloader, model, tokenizer, args)
     
 
 if __name__ == "__main__":

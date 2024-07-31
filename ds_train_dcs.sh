@@ -4,13 +4,13 @@
 #SBATCH --error=log/dcs_ds-%j.err
 #SBATCH --time=02:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=6
+#SBATCH --nodes=1
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs
 #conda activate /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3/envs/jc-eqa
 #conda activate jc-eqa
-conda activate eqa
+#conda activate eqa
 
 
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
@@ -76,10 +76,13 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ds_zero3 \
+--folder ckpts/ds_zero2_test \
 --random_permute \
+--prefiltering \
+--filter_coeff=0.3 \
+--top_k_categories=15 \
 --lr=1e-6 \
---num_epochs=115 \
+--num_epochs=10 \
 --batch_size=1 \
 --patch_size=2 \
 $DEEPSPEED_ARGS \

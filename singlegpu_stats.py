@@ -54,8 +54,10 @@ logging.basicConfig(
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
+from loader import *
 
 
+'''
 def load_checkpoint(model, args, name="checkpoint.pt"):
     checkpoint_path = os.path.join(args.folder, name)
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -83,7 +85,7 @@ def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
     if args.rank == 0:
         torch.save(cpu_state, name)
     # torch.distributed.barrier()
-
+'''
 
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
     llava_model = llava_model.train()

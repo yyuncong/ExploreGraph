@@ -75,7 +75,7 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train_random_switch.py \
---folder ds_tmp \
+--folder ckpt/ds_zero2 \
 --random_permute \
 --prefiltering \
 --filter_coeff=0.3 \
