@@ -503,7 +503,7 @@ def main():
             print("Start training epoch %d" % epoch)
         # Jiachen TODO: update train_one_epoch for your feature
         #log_gpu_memory_usage(args.local_rank,"before training")
-        #train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
+        train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         save_ds_checkpoint(model, saving_folder, epoch, args, lora_config, True)
         #print("evaluating")
