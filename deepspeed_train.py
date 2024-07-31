@@ -482,10 +482,7 @@ def main():
     # del the raw model
     # del model
     #log_gpu_memory_usage(args.local_rank,"after initializing deepspeed")
-    for p in model.parameters():
-        if int(str(p.device)[-1]) != int(model.local_rank):
-            print(f"current local rank {model.local_rank} and parameter device {p.device}")
-    print("local rank is", model.local_rank)
+    #print("local rank is", model.local_rank)
 
     #optimizer = torch.optim.AdamW(model.parameters(), lr=1e-6)
 

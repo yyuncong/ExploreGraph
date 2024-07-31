@@ -91,7 +91,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
     
     torch.cuda.empty_cache()
         
-    pbar = tqdm(dataloader, disable=(model_engine.local_rank != 0))
+    pbar = tqdm(dataloader, disable=(args.rank!= 0))
     total_combined_loss = 0
     total_filter_loss = 0
     total_selection_loss = 0
@@ -118,7 +118,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
                 labels[j, : answer_idx + 2] = -100
 
             labels[labels == tokenizer.pad_token_id] = -100
-            log_gpu_memory_usage(model_engine.local_rank,"after loading data")
+            #log_gpu_memory_usage(model_engine.local_rank,"after loading data")
             # Jiachen TODO: check the content of your new prompt by uncommenting the following line
             '''
             print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
@@ -136,14 +136,14 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
                     output_hidden_states=True,
                 )
             selection_loss = outputs.loss
-            log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
+            #log_gpu_memory_usage(model_engine.local_rank,"after selection forward pass")
             
             del outputs
             torch.cuda.empty_cache()
             #print("if the loss is kept", selection_loss)
-            log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
+            #log_gpu_memory_usage(model_engine.local_rank,"after remove unrelated cache")
             model_engine.backward(selection_loss)
-            log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
+            #log_gpu_memory_usage(model_engine.local_rank,"after selection backward")
             total_selection_loss += selection_loss.item()*input_ids.shape[0]
             total_selection_sample += input_ids.shape[0]
         # Jiachen TODO: get the extra filter outputs with everything you added
@@ -171,9 +171,9 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             filter_loss = filter_outputs.loss * args.filter_coeff
             #combined_loss += filter_loss
             del filter_outputs
-            log_gpu_memory_usage(model_engine.local_rank,"remove filter cache")
+            #log_gpu_memory_usage(model_engine.local_rank,"remove filter cache")
             model_engine.backward(filter_loss)
-            log_gpu_memory_usage(model_engine.local_rank,"after filter backward pass")
+            #log_gpu_memory_usage(model_engine.local_rank,"after filter backward pass")
             total_filter_loss += filter_loss.item()*input_ids.shape[0]
             total_filter_sample += filter_input_ids.shape[0]
         #combined_loss.backward()
@@ -192,8 +192,8 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         pbar.set_description(
             f"loss: {(total_selection_loss + total_filter_loss) / (total_selection_sample + total_filter_sample):.3f}, selection_loss: {total_selection_loss / max(total_selection_sample, 1):.3f}, filter_loss: {total_filter_loss / max(total_filter_sample, 1):.3f}"
         )
-        log_gpu_memory_usage(model_engine.local_rank,"after one step")
-        print(f"max sample size {max_sample_size} in device {model_engine.local_rank}")
+        #log_gpu_memory_usage(model_engine.local_rank,"after one step")
+        #print(f"max sample size {max_sample_size} in device {model_engine.local_rank}")
         
 def eval(dataloader, model, tokenizer, args):
     model.eval()
@@ -266,7 +266,13 @@ def eval(dataloader, model, tokenizer, args):
                 )
             else:
                 pbar.set_description(f"loss: {total_combined_loss / total_sample:.3f}")
-
+    if args.rank == 0:
+        if args.prefiltering:
+            print(
+                f"loss: {(total_combined_loss) / total_sample:.3f}, selection_loss: {total_selection_loss / total_sample:.3f}, filter_loss: {total_filter_loss / total_sample:.3f}"
+            )
+        else:
+            print(f"loss: {total_selection_loss / total_sample:.3f}")
 def main():
     parser = argparse.ArgumentParser()
     # distributed training args
@@ -367,11 +373,11 @@ def main():
     )
     # mannully del image_processor
     del image_processor
-    log_gpu_memory_usage(args.local_rank,"after loading model")
+    #log_gpu_memory_usage(args.local_rank,"after loading model")
     #device_id = torch.device(f'cuda:{args.local_rank}')
     #torch.cuda.set_device(device_id)
     model = model.to('cpu')
-    log_gpu_memory_usage(args.local_rank,"after moving model to cpu")
+    #log_gpu_memory_usage(args.local_rank,"after moving model to cpu")
     #print("if the model is correctly wraped?", type(model_engine))
     #print("local rank is", model_engine.local_rank)
     # Jiachen TODO: pass your parameter in the dataset file
@@ -442,7 +448,7 @@ def main():
         model.print_trainable_parameters()
         # compatiable with deepspeed config
         model.to(torch.float16)
-    log_gpu_memory_usage(args.local_rank,"after wrapping model with lora")
+    #log_gpu_memory_usage(args.local_rank,"after wrapping model with lora")
     #model.train()
     # TODO: initialize the deepspedd engine here
     # figure out where args/model_parameters come from
@@ -467,12 +473,6 @@ def main():
     #)
     # del the raw model
     # del model
-    log_gpu_memory_usage(args.local_rank,"after initializing deepspeed")
-    for p in model.parameters():
-        if int(str(p.device)[-1]) != int(model.local_rank):
-            print(f"current local rank {model.local_rank} and parameter device {p.device}")
-    print("local rank is", model.local_rank)
-
     #optimizer = torch.optim.AdamW(model.parameters(), lr=1e-6)
 
     # wrap model and optimizer with DDP
