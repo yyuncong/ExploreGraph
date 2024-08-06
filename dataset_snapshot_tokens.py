@@ -251,7 +251,7 @@ class ExploreDataset(Dataset):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_new_new")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_clustering_reverse_merge_3.5")
         self.tokenizer = tokenizer
         self.scene_token = scene_token
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
@@ -285,8 +285,13 @@ class ExploreDataset(Dataset):
         self.visual_feature_size = visual_feature_size
 
     def load_step(self, step_path):
-        with open(step_path, "r") as f:
-            stepdata = json.load(f)
+        try:
+            with open(step_path, "r") as f:
+                stepdata = json.load(f)
+        except:
+            print(step_path)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
         epi_path = "/".join(step_path.split("/")[:-1])
         step_file_name = step_path.split("/")[-1]
         step = int(step_file_name.split(".")[0])
@@ -305,7 +310,7 @@ class ExploreDataset(Dataset):
             stepdata["frontier_features"][rgb_id] = feature
         stepdata["snapshot_features"] = {}
         stepdata["snapshot_objects"] = {}
-        snapshot_folder = os.path.join(epi_path, "object_features")
+        snapshot_folder = os.path.join(epi_path, "egocentric")
         for snapshot in stepdata["snapshots"]:
             rgb_id = snapshot["img_id"]
             feature = os.path.join(snapshot_folder, rgb_id.replace(".png", "_full.pt"))
@@ -359,6 +364,8 @@ class ExploreDataset(Dataset):
             steps_data = []
             for step in range(metadata["episode_length"]):
                 stepdata_path = os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")
+                if not os.path.exists(stepdata_path):
+                    continue
                 steps_data.append((stepdata_path, i))
                 self.episode2step[i].append(data_count)
                 data_count += 1
@@ -371,11 +378,11 @@ class ExploreDataset(Dataset):
 
     def __getitem__(self, idx):
         step_path, episode_id = self.data[idx]
-        try:
-            step = self.load_step(step_path)
-        except:
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
+        # try:
+        step = self.load_step(step_path)
+        # except:
+        #     index = np.random.choice(self.indices)
+        #     return self.__getitem__(index)
         episode = self.episodes[episode_id]
 
         shuffle = self.random_permute and (self.split == "train")
