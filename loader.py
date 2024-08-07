@@ -120,3 +120,18 @@ def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None, ex
         with open(os.path.join(folder,"lora_config.json"), "w") as f:
             json.dump(lora_config, f)
     #return model_engine
+    
+
+if __name__ == "__main__":
+    
+    
+    def open_json():
+        try: 
+            with open("bad_case.json","r") as f:
+                bad_case = json.load(f)
+        except Exception as e:
+            print(e)
+        open_json()
+        
+    open_json()
+        

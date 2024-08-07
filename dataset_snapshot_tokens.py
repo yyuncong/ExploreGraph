@@ -286,11 +286,15 @@ class ExploreDataset(Dataset):
 
     def load_step(self, step_path):
         try:
-            with open(step_path, "r") as f:
+            with open(step_path, "r", encoding='utf-8') as f:
                 stepdata = json.load(f)
-        except:
-            print(step_path)
+        except Exception as e:
+            print("step file loading error")
+            print(f"Error loading data at location {step_path}: {e}")
             index = np.random.choice(self.indices)
+            print(f"new index loaded {index}")
+            new_step_path, new_epi_id = self.data[index]
+            print(f"new step path attempted {new_step_path}")
             return self.__getitem__(index)
         epi_path = "/".join(step_path.split("/")[:-1])
         step_file_name = step_path.split("/")[-1]
@@ -389,17 +393,30 @@ class ExploreDataset(Dataset):
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         multi_src_features = []
 
-        with open(self.obj_json_map[episode["scene"]]) as f:
-            obj_json = json.load(f)
+        try:
+            
+            with open(self.obj_json_map[episode["scene"]]) as f:
+                obj_json = json.load(f)
+        except Exception as e:
+            print(f"Error loading data at location {self.obj_json_map[episode['scene']]}: {e}")
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
         obj_positions_map = {
             obj["id"]: (np.array(obj["bbox"][1]) + np.array(obj["bbox"][0])) / 2
             for obj in obj_json
         }
-        obj_positions_map = {
-            key: value[[0, 2, 1]] - step["position"]
-            for key, value in obj_positions_map.items()
-        }
+        try:
+            obj_positions_map = {
+                key: value[[0, 2, 1]] - step["position"]
+                for key, value in obj_positions_map.items()
+            }
+        except:
+            print("loss information in stepdata")
+            print(step_path)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+            
 
         text = f"Question: {episode['question']}\n"
 
@@ -439,6 +456,7 @@ class ExploreDataset(Dataset):
                     step["previous_choice"]
                 )
             except:
+                
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
             text += memory_text
@@ -459,8 +477,17 @@ class ExploreDataset(Dataset):
             # No need to filter here (both scene_graph and snapshots objects from the json files)
             try:
                 keep_indices.append(i)
+                # a simple work round for step feature paths
+                snapshot_feature_path = step["snapshot_features"][rgb_id].split('/')
+                snapshot_feature_path[-1] = snapshot_feature_path[-1].replace('-','_')
+                snapshot_feature_path = '/'.join(snapshot_feature_path)
+                '''
                 snapshot_feature = torch.load(
                     step["snapshot_features"][rgb_id], map_location="cpu"
+                )
+                '''
+                snapshot_feature = torch.load(
+                    snapshot_feature_path, map_location="cpu"
                 )
                 #2*2*dim, 4 visual features to represent 1 snapshot
                 snapshot_feature = merge_patches(
@@ -490,7 +517,12 @@ class ExploreDataset(Dataset):
                     )
                 )
                 snapshot_index += 1
-            except:
+            except Exception as e:
+                # remove current wrong sample?
+                if idx in set(self.indices):
+                    self.indices = list(set(self.indices) - {idx})
+                    print(len(self.indices))
+                    print(f"Error loading data at location {step['snapshot_features'][rgb_id]}: {e}")
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
         if self.add_positional_encodings:
@@ -791,7 +823,7 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 880
+            if int(self.episodes[i]["scene"].split("-")[0]) > 800
             and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [
