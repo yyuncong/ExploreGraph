@@ -823,7 +823,7 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 800
+            if int(self.episodes[i]["scene"].split("-")[0]) > 880
             and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [

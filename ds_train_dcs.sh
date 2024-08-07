@@ -78,9 +78,6 @@ srun $CMD \
 deepspeed_train.py \
 --folder ckpts/ds_zero2_test \
 --random_permute \
---prefiltering \
---filter_coeff=0.3 \
---top_k_categories=15 \
 --lr=1e-6 \
 --num_epochs=10 \
 --batch_size=1 \
@@ -88,3 +85,6 @@ deepspeed_train.py \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable
+#--prefiltering \
+#--filter_coeff=0.3 \
+#--top_k_categories=15 \

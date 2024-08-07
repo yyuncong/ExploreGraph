@@ -173,4 +173,5 @@ log/
 log_old/
 bad_cases/
 eval_sh/
+ckpts/
 
