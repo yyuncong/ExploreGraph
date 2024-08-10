@@ -8,7 +8,8 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot_tokens import ExploreDataset
+#from dataset_snapshot_tokens import ExploreDataset
+from dataset_snapshot_tokens_16 import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -292,7 +293,9 @@ def main():
     )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
-    parser.add_argument("--patch_size", type=int, default=3)
+    parser.add_argument("--patch_size", type=int, default = 1)
+    parser.add_argument("--visual_feature_size", type = int, default = 4)
+    parser.add_argument("--max_length", type = int, default = 2048)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -324,8 +327,9 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         patch_size=args.patch_size,
+        visual_feature_size=args.visual_feature_size,
         tokenizer=tokenizer,
-        max_length=2048,
+        max_length=args.max_length,
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset

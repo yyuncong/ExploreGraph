@@ -2,7 +2,7 @@
 #SBATCH --job-name=test-ds
 #SBATCH --output=log/dcs_ds-%j.txt
 #SBATCH --error=log/dcs_ds-%j.err
-#SBATCH --time=02:00:00
+#SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
 #SBATCH --nodes=16
 # activate the environment
@@ -76,15 +76,29 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ckpts/ds_zero2_test \
+--folder ckpts/ds_cluster_merge_new \
 --random_permute \
---lr=1e-6 \
+--lr=2e-6 \
 --num_epochs=10 \
 --batch_size=1 \
 --patch_size=2 \
+--visual_feature_size=6 \
+--max_length=4096 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
---lora_enable
+--lora_enable \
 #--prefiltering \
 #--filter_coeff=0.3 \
 #--top_k_categories=15 \
+
+
+# automically evaluate after training current model
+
+#train_job_id=$SLURM_JOB_ID
+
+# evaluate first half ckpts
+# eval_job_id1=$(sbatch --dependency=afterok:$train_job_id eval_sh/ds_eval.sh)
+# echo "Submitted evaluation job with ID $eval_job_id1"
+
+# eval_job_id2=$(sbatch --dependency=afterok:$train_job_id eval_sh/ds_eval_5.sh)
+# echo "Submitted evaluation job with ID $eval_job_id2"

@@ -12,6 +12,10 @@ from llava.mm_utils import get_model_name_from_path
 #from dataset_snapshot import ExploreDataset
 #from dataset_snapshot_ds import ExploreDataset
 from dataset_snapshot_tokens import ExploreDataset
+# test exploration_data_clustering
+#from dataset_snapshot_tokens_new import ExploreDataset
+# test visual_token_number = 16
+from dataset_snapshot_tokens_16 import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -354,6 +358,8 @@ def main():
         "--add_positional_encodings", action="store_true", default=False
     )
     parser.add_argument("--patch_size", type=int, default=3)
+    parser.add_argument("--visual_feature_size", type=int, default=6)
+    parser.add_argument("--max_length", type=int, default=2048)
     # TODO: include deepspeed arguments here
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -398,7 +404,8 @@ def main():
         add_positional_encodings=args.add_positional_encodings,
         patch_size=args.patch_size,
         tokenizer=tokenizer,
-        max_length=2048,
+        max_length=args.max_length,
+        visual_feature_size=args.visual_feature_size
     )
     val_total_dataset = ExploreDataset(
         scene_path=args.scene_path,
@@ -411,7 +418,8 @@ def main():
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         patch_size=args.patch_size,
-        max_length=2048,
+        max_length=args.max_length,
+        visual_feature_size=args.visual_feature_size,
         split="val",
     )
     train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)
