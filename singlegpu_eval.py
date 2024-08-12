@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot_tokens import ExploreDataset
+from dataset_snapshot_tokens_16 import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -292,6 +292,8 @@ def main():
     # arguments for deepspeed and lora
     parser.add_argument("--deepspeed_enabled", action="store_true", default=False)
     parser.add_argument("--lora_enabled", action="store_true", default=False)
+    parser.add_argument("--visual_feature_size", type=int, default=6)
+    parser.add_argument("--max_length", type=int, default=2048)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -325,7 +327,8 @@ def main():
         add_positional_encodings=args.add_positional_encodings,
         patch_size=args.patch_size,
         tokenizer=tokenizer,
-        max_length=2048,
+        max_length=args.max_length,
+        visual_feature_size=args.visual_feature_size,
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset

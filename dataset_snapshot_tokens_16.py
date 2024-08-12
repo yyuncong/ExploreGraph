@@ -155,6 +155,7 @@ def prepare_frontier(feature_path, frontier_info, visual_feature_size, patch_siz
             frontier_features = []
             for i, info in enumerate(frontier_info):
                 text += f"frontier {i} "
+                #text += f"{i} "
                 frontier_feature = torch.load(
                     feature_path[info["rgb_id"]], map_location="cpu"
                 )
@@ -210,6 +211,7 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
 # 1 scene is associated with 4 patches
 def merge_patches(patches, patch_size):
     num_patches, num_patches, patch_dim = patches.shape
+    #print(patches.shape)
     new_num_patches = num_patches // patch_size
     assert num_patches % patch_size == 0
     patches = patches.view(
@@ -251,7 +253,7 @@ class ExploreDataset(Dataset):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_clustering_reverse_merge_3.5")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_2.5_best")
         self.tokenizer = tokenizer
         self.scene_token = scene_token
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
@@ -270,6 +272,7 @@ class ExploreDataset(Dataset):
         self.indices = train_index if split == "train" else test_index
         self.obj_not_found_indices = set({})
         self.too_many_objects_indices = set({})
+        self.too_long_prompts_indices = set({})
         self.answer_obj_filtered_indices = set({})
         self.bounds = (-7, 7)
         self.num_bins = 128
@@ -303,10 +306,16 @@ class ExploreDataset(Dataset):
         # add paths for frontiers
         stepdata["frontier_features"] = {}
         stepdata["position"] = np.array(stepdata["agent_state"]["init_pts"])[None,]
-        stepdata["frontier_positions"] = (
-            np.array([f["coordinate"] for f in stepdata["frontiers"]])
-            - stepdata["position"]
-        )
+        # TODO: Need to fix this to make it robust
+        try:
+            stepdata["frontier_positions"] = (
+                np.array([f["coordinate"] for f in stepdata["frontiers"]])
+                - stepdata["position"]
+            )
+        except:
+            stepdata["frontier_positions"] = np.array(
+                [stepdata["position"] for f in stepdata["frontiers"]]
+            )
         frontier_folder = os.path.join(epi_path, "frontier_rgb")
         for frontier in stepdata["frontiers"]:
             rgb_id = frontier["rgb_id"]
@@ -314,7 +323,7 @@ class ExploreDataset(Dataset):
             stepdata["frontier_features"][rgb_id] = feature
         stepdata["snapshot_features"] = {}
         stepdata["snapshot_objects"] = {}
-        snapshot_folder = os.path.join(epi_path, "egocentric")
+        snapshot_folder = os.path.join(epi_path, "object_features")
         for snapshot in stepdata["snapshots"]:
             rgb_id = snapshot["img_id"]
             feature = os.path.join(snapshot_folder, rgb_id.replace(".png", "_16.pt"))
@@ -330,9 +339,9 @@ class ExploreDataset(Dataset):
 
         stepdata["egocentric_features"] = {}
         for view_idx in range(self.num_egocentric_views):
-            egocentric_view_folder = os.path.join(epi_path, f"egocentric")
+            egocentric_view_folder = os.path.join(epi_path, f"object_features")
             featrue = os.path.join(
-                egocentric_view_folder, f"{step}_view_{view_idx}_16.pt"
+                egocentric_view_folder, f"{step}-view_{view_idx}_16.pt"
             )
             stepdata["egocentric_features"][view_idx] = featrue
         return stepdata
@@ -478,9 +487,10 @@ class ExploreDataset(Dataset):
             try:
                 keep_indices.append(i)
                 # a simple work round for step feature paths
-                snapshot_feature_path = step["snapshot_features"][rgb_id].split('/')
-                snapshot_feature_path[-1] = snapshot_feature_path[-1].replace('-','_')
-                snapshot_feature_path = '/'.join(snapshot_feature_path)
+                # snapshot_feature_path = step["snapshot_features"][rgb_id].split('/')
+                # snapshot_feature_path[-1] = snapshot_feature_path[-1].replace('-','_')
+                # snapshot_feature_path = '/'.join(snapshot_feature_path)
+                snapshot_feature_path = step["snapshot_features"][rgb_id]
                 '''
                 snapshot_feature = torch.load(
                     step["snapshot_features"][rgb_id], map_location="cpu"
@@ -521,7 +531,7 @@ class ExploreDataset(Dataset):
                 # remove current wrong sample?
                 if idx in set(self.indices):
                     self.indices = list(set(self.indices) - {idx})
-                    print(f'remaining effective samples {len(self.indices)}')
+                    print(len(self.indices))
                     print(f"Error loading data at location {step['snapshot_features'][rgb_id]}: {e}")
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
@@ -616,11 +626,12 @@ class ExploreDataset(Dataset):
         text += "These are the snapshots:\n"
         for i, class_names in enumerate(snapshot_classes):
             text += f"snapshot {i} "
+            #text += f"{i} "
             class_names_set = set(class_names)
             class_names_list = list(class_names_set)
             sorted_class_names = sorted(class_names_list)
-            for class_name in sorted_class_names:
-                text += f"{class_name}, "
+            # for class_name in sorted_class_names:
+            #     text += f"{class_name}, "
             for _ in range(self.num_visual_tokens):
                 text += "<scene>"
             text += " / "
@@ -718,7 +729,10 @@ class ExploreDataset(Dataset):
         
         
         if self.max_length <= len(text):
-            self.too_many_objects_indices.add(idx)
+            self.too_long_prompts_indices.add(idx)
+            #print(f"the number of visual tokens for each item {self.num_visual_tokens}")
+            #print(len(scene_feature))
+            #print(text)
             if self.split == "train":
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)

@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=test-ds
-#SBATCH --output=log/dcs_ds-%j.txt
-#SBATCH --error=log/dcs_ds-%j.err
+#SBATCH --output=log/dcs_cluster-%j.txt
+#SBATCH --error=log/dcs_cluster-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=16
+#SBATCH --nodes=32
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs
@@ -76,20 +76,20 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ckpts/ds_cluster_merge_new \
+--folder ckpts/ds_cluster_best_2.5_noclass \
 --random_permute \
---lr=2e-6 \
---num_epochs=10 \
+--lr=4e-6 \
+--num_epochs=8 \
 --batch_size=1 \
---patch_size=2 \
+--patch_size=1 \
 --visual_feature_size=6 \
---max_length=4096 \
+--max_length=5120 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
 #--prefiltering \
 #--filter_coeff=0.3 \
-#--top_k_categories=15 \
+#--top_k_categories=10 \
 
 
 # automically evaluate after training current model

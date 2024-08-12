@@ -13,31 +13,27 @@
 #--prefiltering \
 #--top_k_categories=$top_k_categories
 
-max_length=2048
+# max_length=2048
 
-echo "max_length=$max_length"
+# echo "max_length=$max_length"
 
-python singlegpu_stats.py \
---max_length=$max_length \
---patch_size=1 \
---visual_feature_size=4
+# python singlegpu_stats.py \
+# --max_length=$max_length \
+# --patch_size=1 \
+# --visual_feature_size=4
 
-max_length=3072
-
-echo "max_length=$max_length"
-
-python singlegpu_stats.py \
---max_length=$max_length \
---patch_size=1 \
---visual_feature_size=4 \
-
-max_length=4096
+max_length=8192
 
 echo "max_length=$max_length"
 python singlegpu_stats.py \
 --max_length=$max_length \
 --patch_size=1 \
---visual_feature_size=4 \
+--visual_feature_size=6 \
+
+
+
+
+
 
 
 

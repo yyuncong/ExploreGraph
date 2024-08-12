@@ -9,7 +9,7 @@ import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 #from dataset_snapshot_tokens import ExploreDataset
-from dataset_snapshot_tokens_16 import ExploreDataset
+from dataset_snapshot_tokens_new import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -396,6 +396,10 @@ def main():
     # print("too many objects num (pre)", val_total_dataset.num_too_many_objects)
     print("object not found num: ", len(val_total_dataset.obj_not_found_indices))
     print("too many objects num: ", len(val_total_dataset.too_many_objects_indices))
+    print("too long prompts num: ", len(val_total_dataset.too_long_prompts_indices))
+    print("too long prompts num: (too many objects)", len(
+        val_total_dataset.too_many_objects_indices & val_total_dataset.too_long_prompts_indices
+    ))
     print("object filtered num: ", len(val_total_dataset.answer_obj_filtered_indices))
 
 

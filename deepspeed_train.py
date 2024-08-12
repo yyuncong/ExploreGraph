@@ -11,11 +11,11 @@ from llava.mm_utils import get_model_name_from_path
 #from dataset import ExploreDataset
 #from dataset_snapshot import ExploreDataset
 #from dataset_snapshot_ds import ExploreDataset
-from dataset_snapshot_tokens import ExploreDataset
+# from dataset_snapshot_tokens import ExploreDataset
 # test exploration_data_clustering
-#from dataset_snapshot_tokens_new import ExploreDataset
+from dataset_snapshot_tokens_new import ExploreDataset
 # test visual_token_number = 16
-from dataset_snapshot_tokens_16 import ExploreDataset
+# from dataset_snapshot_tokens_16 import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -152,7 +152,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
-            optimizer.zero_grad()
+            # optimizer.zero_grad()
             with torch.autocast(device_type="cuda"):
                 filter_outputs = model_engine(
                     input_ids=filter_input_ids,
@@ -452,7 +452,7 @@ def main():
     '''
     val_dataloader = DataLoader(
         val_dataset,
-        batch_size=4,
+        batch_size=3,
         shuffle=False,
         pin_memory=True,
         num_workers=1,
