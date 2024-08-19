@@ -244,16 +244,22 @@ class ExploreDataset(Dataset):
         prefiltering=False,
         random_permute=False,
         add_positional_encodings=False,
+        map_category=False,
         top_k_categories=5,
         num_egocentric_views=5,
         patch_size=3,
         visual_feature_size=6,
+        mapping_rate=0.5,
         split="train",
     ):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
-        self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_2.5_best")
+        #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
+        self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_2.5_best_fixed")
+        self.category_map_path = "bbox_mapping/mpcat40_full_map.json"
+        with open(self.category_map_path, "r") as f:
+            self.category_map = json.load(f)
         self.tokenizer = tokenizer
         self.scene_token = scene_token
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
@@ -263,6 +269,8 @@ class ExploreDataset(Dataset):
         self.random_permute = random_permute
         self.num_egocentric_views = num_egocentric_views
         self.top_k_categories = top_k_categories
+        self.map_category = map_category
+        self.mapping_rate = mapping_rate
 
         self.max_length = max_length
         self.split = split
@@ -371,8 +379,18 @@ class ExploreDataset(Dataset):
             except:
                 num_skipped += 1
                 continue
+            '''
+            try:
+                if (len(os.listdir(os.path.join(epi_path,"egocentric"))) == 0
+                    or len(os.listdir(os.path.join(epi_path,"frontier_rgb"))) == 0
+                    or len(os.listdir(os.path.join(epi_path,"object_features"))) == 0):
+                    num_skipped += 1
+                    continue
+            except:
+                num_skipped += 1
+                continue
+            '''
             self.episodes.append(metadata)
-
             # load step data
             steps_data = []
             for step in range(metadata["episode_length"]):
@@ -531,8 +549,8 @@ class ExploreDataset(Dataset):
                 # remove current wrong sample?
                 if idx in set(self.indices):
                     self.indices = list(set(self.indices) - {idx})
-                    print(len(self.indices))
-                    print(f"Error loading data at location {step['snapshot_features'][rgb_id]}: {e}")
+                    #print(len(self.indices))
+                    #print(f"Error loading data at location {step['snapshot_features'][rgb_id]}: {e}")
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
         if self.add_positional_encodings:
@@ -630,12 +648,19 @@ class ExploreDataset(Dataset):
             class_names_set = set(class_names)
             class_names_list = list(class_names_set)
             sorted_class_names = sorted(class_names_list)
-            # for class_name in sorted_class_names:
-            #     text += f"{class_name}, "
+            if random.random() < self.mapping_rate:
+                for class_name in sorted_class_names:
+                    if self.map_category and class_name in self.category_map.keys():
+                        #print(f"remap category {class_name} to {self.category_map[class_name]}")
+                        text += f"{self.category_map[class_name]}, "
+                    else:
+                        text += f"{class_name}, "
+            else:
+                for class_name in sorted_class_names:
+                    text += f"{class_name}, "
             for _ in range(self.num_visual_tokens):
                 text += "<scene>"
             text += " / "
-
         if snapshot_index == 0:
             text += f"No snapshot available "
             # construct zero scene feature if all snapshots are missed

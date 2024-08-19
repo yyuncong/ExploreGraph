@@ -273,6 +273,9 @@ def format_saving_folder(args):
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
         saving_folder += f"_coeff{args.filter_coeff}"
+    if args.map_category:
+        saving_folder += "_map"
+        saving_folder += f"_rate{args.mapping_rate}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:
@@ -360,6 +363,8 @@ def main():
     parser.add_argument("--patch_size", type=int, default=3)
     parser.add_argument("--visual_feature_size", type=int, default=6)
     parser.add_argument("--max_length", type=int, default=2048)
+    parser.add_argument("--map_category", action="store_true", default=False)
+    parser.add_argument("--mapping_rate", type=float, default=0.5)
     # TODO: include deepspeed arguments here
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -405,6 +410,8 @@ def main():
         patch_size=args.patch_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
+        map_category=args.map_category,
+        mapping_rate=args.mapping_rate,
         visual_feature_size=args.visual_feature_size
     )
     val_total_dataset = ExploreDataset(

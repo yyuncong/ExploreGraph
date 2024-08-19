@@ -4,7 +4,7 @@
 #SBATCH --error=log/dcs_cluster-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=32
+#SBATCH --nodes=16
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs
@@ -76,17 +76,20 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ckpts/ds_cluster_best_2.5_noclass \
+--folder ckpts/ds_cluster_best_2.5_hm3d_remap \
 --random_permute \
 --lr=4e-6 \
---num_epochs=8 \
+--num_epochs=5 \
 --batch_size=1 \
 --patch_size=1 \
---visual_feature_size=6 \
+--visual_feature_size=3 \
 --max_length=5120 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
+--map_category \
+--mapping_rate=0.3 \
+
 #--prefiltering \
 #--filter_coeff=0.3 \
 #--top_k_categories=10 \
