@@ -61,6 +61,7 @@ logging.basicConfig(
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
+from loader import *
 
 
 def set_seed(seed):
@@ -68,105 +69,7 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    
 
-def find_all_linear_names(model):
-    cls = torch.nn.Linear
-    lora_module_names = set()
-    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
-    for name, module in model.named_modules():
-        if any(mm_keyword in name for mm_keyword in multimodal_keywords):
-            continue
-        if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
-
-    if 'lm_head' in lora_module_names: # needed for 16-bit
-        lora_module_names.remove('lm_head')
-    return list(lora_module_names)
-
-def lora_wrapper(model,args):
-    if isinstance(args, dict):
-        lora_config = LoraConfig(
-            r = args['r'],
-            lora_alpha = args['lora_alpha'],
-            target_modules = args['target_modules'],
-            lora_dropout = args['lora_dropout'],
-            bias = args['bias'],
-            task_type = args['task_type']
-        )
-    else:
-        lora_config = LoraConfig(
-            r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            target_modules=find_all_linear_names(model),
-            lora_dropout=args.lora_dropout,
-            bias=args.lora_bias,
-            task_type = 'CAUSAL_LM'
-        )
-    model = get_peft_model(model, lora_config)
-    return model, lora_config.to_dict()
-
-
-def load_checkpoint(model, args, name="checkpoint.pt"):
-    checkpoint = torch.load(name, map_location="cpu")
-    # wait until checkpoints in all processes are loaded
-    torch.distributed.barrier()
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT):
-        model.load_state_dict(checkpoint, True)
-    del checkpoint
-    torch.cuda.empty_cache()
-    torch.distributed.barrier()
-
-def load_ds_checkpoint(model,saving_folder, ckpt_indx):
-    # this returns a model unwrapped lora
-    from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
-    tag = "checkpoint_%d" % ckpt_indx
-    state_dict = get_fp32_state_dict_from_zero_checkpoint(
-        saving_folder, 
-        tag, 
-        exclude_frozen_parameters = True
-    )
-    if "lora_config.json" in os.listdir(os.path.join(saving_folder)):
-        with open(os.path.join(saving_folder, "lora_config.json"), 'r') as f:
-            lora_config = json.load(f)
-        model, _ = lora_wrapper(model,lora_config)
-    model.load_state_dict(state_dict, strict = False)
-    return model
-
-
-def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
-        cpu_state = model.state_dict()
-    if args.rank == 0:
-        torch.save(cpu_state, name)
-    torch.distributed.barrier()
-
-def save_ds_checkpoint(model_engine, folder, epoch, args, lora_config = None):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    #folder = os.path.join(folder, "checkpoint_%d" % epoch)
-    model_engine.save_checkpoint(
-        folder,
-        tag = "checkpoint_%d" % epoch,
-        exclude_frozen_parameters = True
-    )
-    if lora_config is not None and args.rank == 0:
-        print(lora_config)
-        lora_config["target_modules"] = list(lora_config["target_modules"])
-        with open(os.path.join(folder,"lora_config.json"), "w") as f:
-            json.dump(lora_config, f)
-    #return model_engine
 
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
     llava_model = llava_model.train()
@@ -400,6 +303,11 @@ def main():
         "--add_positional_encodings", action="store_true", default=False
     )
     parser.add_argument("--patch_size", type=int, default=2)
+    parser.add_argument("--visual_feature_size", type=int, default=6)
+    parser.add_argument("--max_length", type=int, default=2048)
+    parser.add_argument("--map_category", action="store_true", default=False)
+    parser.add_argument("--mapping_rate", type=float, default=0.5)
+    parser.add_argument("--target_use_gt", action="store_true", default=False)
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -417,9 +325,6 @@ def main():
     model.requires_grad_(True)
     del model.model.vision_tower
     
-    # try load ds model
-    load_ds_checkpoint(model,"ckpts/ds_zero2_1e-06_patch2_ds_rand_filter_top15_coeff0.3_ego_lora",0)
-    print('successfully load checkpoint!')
     model.train()
     # from dataset import (
     #     SCENE_TOKEN
@@ -445,7 +350,11 @@ def main():
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
         patch_size = args.patch_size,
-        max_length=2048,
+        max_length=args.max_length,
+        map_category=args.map_category,
+        mapping_rate=args.mapping_rate,
+        target_use_gt=args.target_use_gt,
+        visual_feature_size=args.visual_feature_size
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
     train_dataset = Subset(dataset, train_index)

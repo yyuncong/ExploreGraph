@@ -76,9 +76,7 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-# TODO:
-# 1. initialize lora config
-# 2. use lora to wrap up the model
+
 
 def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, args):
     #print(type(llava_model))
@@ -105,7 +103,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
         )
         input_ids = sample.input_ids.to("cuda")#.to("cpu")
         attention_mask = sample.attention_mask.to("cuda")#.to("cpu")
-        max_sample_size = max(max_sample_size, input_ids.shape[1])
+        #max_sample_size = max(max_sample_size, input_ids.shape[1])
         '''
         print(f"Current max sample size {max_sample_size} in device {model_engine.local_rank}")
         print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
@@ -152,7 +150,6 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
-            # optimizer.zero_grad()
             with torch.autocast(device_type="cuda"):
                 filter_outputs = model_engine(
                     input_ids=filter_input_ids,
@@ -360,7 +357,7 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
-    parser.add_argument("--patch_size", type=int, default=3)
+    parser.add_argument("--patch_size", type=int, default=2)
     parser.add_argument("--visual_feature_size", type=int, default=6)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--map_category", action="store_true", default=False)
