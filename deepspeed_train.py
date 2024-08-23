@@ -365,6 +365,7 @@ def main():
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--map_category", action="store_true", default=False)
     parser.add_argument("--mapping_rate", type=float, default=0.5)
+    parser.add_argument("--target_use_gt", action="store_true", default=False)
     # TODO: include deepspeed arguments here
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -412,6 +413,7 @@ def main():
         max_length=args.max_length,
         map_category=args.map_category,
         mapping_rate=args.mapping_rate,
+        target_use_gt=args.target_use_gt,
         visual_feature_size=args.visual_feature_size
     )
     val_total_dataset = ExploreDataset(
@@ -427,6 +429,7 @@ def main():
         patch_size=args.patch_size,
         max_length=args.max_length,
         visual_feature_size=args.visual_feature_size,
+        target_use_gt=False, # only use recognize label for target
         split="val",
     )
     train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)

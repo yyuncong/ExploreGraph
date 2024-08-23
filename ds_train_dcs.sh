@@ -4,7 +4,7 @@
 #SBATCH --error=log/dcs_cluster-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=16
+#SBATCH --nodes=24
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs
@@ -79,7 +79,7 @@ deepspeed_train.py \
 --folder ckpts/ds_cluster_best_2.5_hm3d_remap \
 --random_permute \
 --lr=4e-6 \
---num_epochs=5 \
+--num_epochs=10 \
 --batch_size=1 \
 --patch_size=1 \
 --visual_feature_size=3 \
@@ -88,7 +88,7 @@ $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
 --map_category \
---mapping_rate=0.3 \
+--mapping_rate=0.7 \
 
 #--prefiltering \
 #--filter_coeff=0.3 \

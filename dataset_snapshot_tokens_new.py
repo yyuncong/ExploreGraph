@@ -245,6 +245,7 @@ class ExploreDataset(Dataset):
         random_permute=False,
         add_positional_encodings=False,
         map_category=False,
+        target_use_gt=False,
         top_k_categories=5,
         num_egocentric_views=5,
         patch_size=3,
@@ -271,6 +272,7 @@ class ExploreDataset(Dataset):
         self.top_k_categories = top_k_categories
         self.map_category = map_category
         self.mapping_rate = mapping_rate
+        self.target_use_gt = target_use_gt
 
         self.max_length = max_length
         self.split = split
@@ -337,6 +339,7 @@ class ExploreDataset(Dataset):
             feature = os.path.join(snapshot_folder, rgb_id.replace(".png", "_full.pt"))
             stepdata["snapshot_features"][rgb_id] = feature
             object_ids = snapshot["obj_ids"]
+            # use image_id to index the snapshot
             stepdata["snapshot_objects"][rgb_id] = object_ids
 
         if stepdata["previous_choice"] is not None:
@@ -393,11 +396,12 @@ class ExploreDataset(Dataset):
             self.episodes.append(metadata)
             # load step data
             steps_data = []
+            target_obj_id = metadata["target_obj_id"]
             for step in range(metadata["episode_length"]):
                 stepdata_path = os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")
                 if not os.path.exists(stepdata_path):
                     continue
-                steps_data.append((stepdata_path, i))
+                steps_data.append((stepdata_path, i, target_obj_id))
                 self.episode2step[i].append(data_count)
                 data_count += 1
             data.extend(steps_data)
@@ -408,7 +412,7 @@ class ExploreDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        step_path, episode_id = self.data[idx]
+        step_path, episode_id, target_obj_id = self.data[idx]
         # try:
         step = self.load_step(step_path)
         # except:
@@ -428,6 +432,7 @@ class ExploreDataset(Dataset):
             print(f"Error loading data at location {self.obj_json_map[episode['scene']]}: {e}")
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
+        # map scene_id to the object json directory
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
         obj_positions_map = {
             obj["id"]: (np.array(obj["bbox"][1]) + np.array(obj["bbox"][0])) / 2
@@ -524,8 +529,10 @@ class ExploreDataset(Dataset):
                     ),
                     self.patch_size,
                 )
+                # update the way naming objects
                 snapshot_class = [
-                    obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]
+                    obj_map[str(sid)]['gt_class'] if sid == target_obj_id and self.target_use_gt else obj_map[str(sid)]['recognize_class']
+                    for sid in step["snapshot_objects"][rgb_id]
                 ]
                 seen_classes.update(snapshot_class)
                 snapshot_classes.append(

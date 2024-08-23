@@ -331,6 +331,8 @@ def main():
         tokenizer=tokenizer,
         max_length=args.max_length,
         visual_feature_size=args.visual_feature_size,
+        map_category = True,
+        mapping_rate = 1.0,
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
