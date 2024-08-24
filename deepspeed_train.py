@@ -279,6 +279,8 @@ def format_saving_folder(args):
         saving_folder += "_mem"
     if args.lora_enable:
         saving_folder += "_lora"
+    if args.target_use_gt:
+        saving_folder += "_targt"
     return saving_folder
 
 def main():

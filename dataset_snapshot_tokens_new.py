@@ -257,7 +257,7 @@ class ExploreDataset(Dataset):
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_2.5_best_fixed")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data")
         self.category_map_path = "bbox_mapping/mpcat40_full_map.json"
         with open(self.category_map_path, "r") as f:
             self.category_map = json.load(f)
@@ -530,9 +530,16 @@ class ExploreDataset(Dataset):
                     self.patch_size,
                 )
                 # update the way naming objects
+                '''
+                if str(target_obj_id) in list(step["snapshot_objects"][rgb_id].keys()):
+                    print('this is right')
+                else:
+                    print(target_obj_id)
+                    print(list(step["snapshot_objects"][rgb_id].keys()))
+                '''
                 snapshot_class = [
-                    obj_map[str(sid)]['gt_class'] if sid == target_obj_id and self.target_use_gt else obj_map[str(sid)]['recognize_class']
-                    for sid in step["snapshot_objects"][rgb_id]
+                    class_name['gt_class'] if sid == str(target_obj_id) and self.target_use_gt else class_name['recognize_class']
+                    for sid,class_name in step["snapshot_objects"][rgb_id].items()
                 ]
                 seen_classes.update(snapshot_class)
                 snapshot_classes.append(

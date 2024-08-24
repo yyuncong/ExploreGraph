@@ -302,9 +302,9 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
-    parser.add_argument("--patch_size", type=int, default=2)
-    parser.add_argument("--visual_feature_size", type=int, default=6)
-    parser.add_argument("--max_length", type=int, default=2048)
+    parser.add_argument("--patch_size", type=int, default=1)
+    parser.add_argument("--visual_feature_size", type=int, default=3)
+    parser.add_argument("--max_length", type=int, default=4096)
     parser.add_argument("--map_category", action="store_true", default=False)
     parser.add_argument("--mapping_rate", type=float, default=0.5)
     parser.add_argument("--target_use_gt", action="store_true", default=False)

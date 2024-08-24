@@ -76,10 +76,10 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ckpts/ds_cluster_best_2.5_hm3d_remap \
+--folder ckpts/ds_cluster_scannet \
 --random_permute \
 --lr=4e-6 \
---num_epochs=10 \
+--num_epochs=5 \
 --batch_size=1 \
 --patch_size=1 \
 --visual_feature_size=3 \
@@ -87,8 +87,6 @@ deepspeed_train.py \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
---map_category \
---mapping_rate=0.7 \
 
 #--prefiltering \
 #--filter_coeff=0.3 \
