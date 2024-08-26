@@ -305,9 +305,10 @@ def main():
     parser.add_argument("--patch_size", type=int, default=1)
     parser.add_argument("--visual_feature_size", type=int, default=3)
     parser.add_argument("--max_length", type=int, default=4096)
-    parser.add_argument("--map_category", action="store_true", default=False)
-    parser.add_argument("--mapping_rate", type=float, default=0.5)
+    parser.add_argument("--mix_gt", action="store_true", default=False)
+    parser.add_argument("--gt_rate", type=float, default=0.5)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
+    parser.add_argument("--augment_question",action="store_true",default=False)
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -351,9 +352,10 @@ def main():
         tokenizer=tokenizer,
         patch_size = args.patch_size,
         max_length=args.max_length,
-        map_category=args.map_category,
-        mapping_rate=args.mapping_rate,
+        mix_gt=args.mix_gt,
+        gt_rate=args.gt_rate,
         target_use_gt=args.target_use_gt,
+        augment_question=args.augment_question,
         visual_feature_size=args.visual_feature_size
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)

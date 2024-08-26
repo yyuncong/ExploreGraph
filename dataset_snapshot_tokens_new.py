@@ -244,13 +244,14 @@ class ExploreDataset(Dataset):
         prefiltering=False,
         random_permute=False,
         add_positional_encodings=False,
-        map_category=False,
+        mix_gt=False,
+        augment_question=False,
         target_use_gt=False,
         top_k_categories=5,
         num_egocentric_views=5,
         patch_size=3,
         visual_feature_size=6,
-        mapping_rate=0.5,
+        gt_rate=0.5,
         split="train",
     ):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
@@ -259,6 +260,7 @@ class ExploreDataset(Dataset):
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
         self.explore_dir = os.path.join(exploration_path, "exploration_data")
         self.category_map_path = "bbox_mapping/mpcat40_full_map.json"
+        self.augmented_questions_path = "question_augment/augmented_generated_questions.json"
         with open(self.category_map_path, "r") as f:
             self.category_map = json.load(f)
         self.tokenizer = tokenizer
@@ -268,10 +270,11 @@ class ExploreDataset(Dataset):
         self.action_memory = action_memory
         self.prefiltering = prefiltering
         self.random_permute = random_permute
+        self.augment_question = augment_question
         self.num_egocentric_views = num_egocentric_views
         self.top_k_categories = top_k_categories
-        self.map_category = map_category
-        self.mapping_rate = mapping_rate
+        self.mix_gt = mix_gt
+        self.gt_rate = gt_rate
         self.target_use_gt = target_use_gt
 
         self.max_length = max_length
@@ -359,9 +362,13 @@ class ExploreDataset(Dataset):
 
     def load_data(self):
         # load scene feature into dict
+        
+        #1. load prefiltering candidates
         with open(self.ranking_path, "r") as f:
             self.candidate_rankings = json.load(f)
-
+        #2. load augmented questions
+        with open(self.augmented_questions_path, "r") as f:
+            self.augmented_questions = json.load(f)
         self.obj_json_map = {}
         for obj_json in os.listdir(self.obj_bbox_dir):
             scene_id = obj_json.split(".")[0]
@@ -450,7 +457,14 @@ class ExploreDataset(Dataset):
             return self.__getitem__(index)
             
 
-        text = f"Question: {episode['question']}\n"
+        if self.augment_question:
+            raw_question = episode["question"]
+            if episode["question"] in self.augmented_questions.keys():
+                phrased_question = np.random.choice(self.augmented_questions[episode["question"]])
+                print(f"raw question {raw_question} phrased question {phrased_question}")
+            else:
+                phrased_question = raw_question
+        text = f"Question: {phrased_question}\n"
 
         if self.egocentric_views:
             try:
@@ -505,6 +519,7 @@ class ExploreDataset(Dataset):
         # use seen objects set to replace class2object
         # class2object = defaultdict(list)
         seen_classes = set()
+        use_gt = (random.random() < self.gt_rate) and self.mix_gt
         for i, rgb_id in enumerate(step["snapshot_features"].keys()):
             # No need to filter here (both scene_graph and snapshots objects from the json files)
             try:
@@ -537,10 +552,16 @@ class ExploreDataset(Dataset):
                     print(target_obj_id)
                     print(list(step["snapshot_objects"][rgb_id].keys()))
                 '''
-                snapshot_class = [
-                    class_name['gt_class'] if sid == str(target_obj_id) and self.target_use_gt else class_name['recognize_class']
-                    for sid,class_name in step["snapshot_objects"][rgb_id].items()
-                ]
+                if use_gt:
+                    snapshot_class = [
+                        class_name['gt_class']
+                        for sid,class_name in step["snapshot_objects"][rgb_id].items()
+                    ]
+                else:
+                    snapshot_class = [
+                        class_name['gt_class'] if sid == str(target_obj_id) and self.target_use_gt else class_name['recognize_class']
+                        for sid,class_name in step["snapshot_objects"][rgb_id].items()
+                    ]
                 seen_classes.update(snapshot_class)
                 snapshot_classes.append(
                     # [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
@@ -622,27 +643,14 @@ class ExploreDataset(Dataset):
                 [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set]
                 for snap_cls in snapshot_classes
             ]
-            # print('after inner snapshot filtering', snapshot_classes)
             snapshot_features = [
                 snapshot_features[snap_idx] for snap_idx in snap_indices
             ]
             snapshot_index = len(keep_indices)
-            # debugging prompt
-            """
-            print("filtered snapshot index", snap_indices)
-            print("filtered keep indices", keep_indices)
-            print("filtered snapshot classes", snapshot_classes)
-            """
-
         if shuffle:
             # shuffle the index if random_permute is True otherwise keep the original order
             random_snapshot_index = list(range(snapshot_index))
             np.random.shuffle(random_snapshot_index)
-            """
-            print('shuffle index', random_snapshot_index)
-            print('original keep indices', keep_indices)
-            print('original snapshot classes', snapshot_classes)
-            """
             keep_indices = [keep_indices[r_idx] for r_idx in random_snapshot_index]
             snapshot_classes = [
                 snapshot_classes[r_idx] for r_idx in random_snapshot_index
@@ -650,10 +658,6 @@ class ExploreDataset(Dataset):
             snapshot_features = [
                 snapshot_features[r_idx] for r_idx in random_snapshot_index
             ]
-            """
-            print('shuffled keep indices', keep_indices)
-            print('shuffled snapshot classes', snapshot_classes)
-            """
         
         text += "These are the snapshots:\n"
         for i, class_names in enumerate(snapshot_classes):
@@ -662,6 +666,7 @@ class ExploreDataset(Dataset):
             class_names_set = set(class_names)
             class_names_list = list(class_names_set)
             sorted_class_names = sorted(class_names_list)
+            '''
             if random.random() < self.mapping_rate:
                 for class_name in sorted_class_names:
                     if self.map_category and class_name in self.category_map.keys():
@@ -670,8 +675,9 @@ class ExploreDataset(Dataset):
                     else:
                         text += f"{class_name}, "
             else:
-                for class_name in sorted_class_names:
-                    text += f"{class_name}, "
+            '''
+            for class_name in sorted_class_names:
+                text += f"{class_name}, "
             for _ in range(self.num_visual_tokens):
                 text += "<scene>"
             text += " / "
@@ -685,12 +691,9 @@ class ExploreDataset(Dataset):
 
         text += "\n"
 
-        # shuffle frontier index
-        # print("frontier before shuffle", [frontier['rgb_id'] for frontier in step["frontiers"]])
         frontier_index = list(range(len(step["frontiers"])))
         if shuffle:
             np.random.shuffle(frontier_index)
-        # print("random_frontier_index", frontier_index)
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
@@ -727,8 +730,6 @@ class ExploreDataset(Dataset):
                 ],
             )
         )
-        # print("frontier prediction after shuffle", prediction[-len(step["frontiers"]):])
-        # print("reformatted prediction", prediction)
         prediction = torch.tensor(prediction)
 
         # prefiltering TODO: the assert might not be valid after prefiltering

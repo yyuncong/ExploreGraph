@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=test-ds
-#SBATCH --output=log/dcs_cluster-%j.txt
-#SBATCH --error=log/dcs_cluster-%j.err
+#SBATCH --output=log/dcs_scannet-%j.txt
+#SBATCH --error=log/dcs_scannet-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
 #SBATCH --nodes=24
@@ -79,7 +79,7 @@ deepspeed_train.py \
 --folder ckpts/ds_cluster_scannet \
 --random_permute \
 --lr=4e-6 \
---num_epochs=5 \
+--num_epochs=10 \
 --batch_size=1 \
 --patch_size=1 \
 --visual_feature_size=3 \
@@ -87,6 +87,8 @@ deepspeed_train.py \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
+--augment_question \
+
 
 #--prefiltering \
 #--filter_coeff=0.3 \

@@ -270,9 +270,9 @@ def format_saving_folder(args):
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
         saving_folder += f"_coeff{args.filter_coeff}"
-    if args.map_category:
-        saving_folder += "_map"
-        saving_folder += f"_rate{args.mapping_rate}"
+    if args.mix_gt:
+        saving_folder += "_mix"
+        saving_folder += f"_gtrate{args.gt_rate}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:
@@ -281,6 +281,8 @@ def format_saving_folder(args):
         saving_folder += "_lora"
     if args.target_use_gt:
         saving_folder += "_targt"
+    if args.augment_question:
+        saving_folder += "_qaug"
     return saving_folder
 
 def main():
@@ -362,9 +364,10 @@ def main():
     parser.add_argument("--patch_size", type=int, default=2)
     parser.add_argument("--visual_feature_size", type=int, default=6)
     parser.add_argument("--max_length", type=int, default=2048)
-    parser.add_argument("--map_category", action="store_true", default=False)
-    parser.add_argument("--mapping_rate", type=float, default=0.5)
+    parser.add_argument("--mix_gt", action="store_true", default=False)
+    parser.add_argument("--gt_rate", type=float, default=0.5)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
+    parser.add_argument("--augment_question",action="store_true",default=False)
     # TODO: include deepspeed arguments here
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -410,9 +413,10 @@ def main():
         patch_size=args.patch_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
-        map_category=args.map_category,
-        mapping_rate=args.mapping_rate,
+        mix_gt=args.mix_gt,
+        gt_rate=args.gt_rate,
         target_use_gt=args.target_use_gt,
+        augment_question=args.augment_question,
         visual_feature_size=args.visual_feature_size
     )
     val_total_dataset = ExploreDataset(
@@ -429,6 +433,7 @@ def main():
         max_length=args.max_length,
         visual_feature_size=args.visual_feature_size,
         target_use_gt=False, # only use recognize label for target
+        argument_question=False, # only use raw question for validation
         split="val",
     )
     train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)

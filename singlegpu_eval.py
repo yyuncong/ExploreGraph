@@ -296,6 +296,8 @@ def main():
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--map_category", action="store_true", default=False)
     parser.add_argument("--mapping_rate", type=float, default=0.5)
+    parser.add_argument("--target_use_gt", action="store_true", default=False)
+    parser.add_argument("--augment_question", action="store_true", default=False)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -331,6 +333,8 @@ def main():
         tokenizer=tokenizer,
         max_length=args.max_length,
         visual_feature_size=args.visual_feature_size,
+        target_use_gt=False,
+        augment_question=False, # disable question augmentation in evaluation phase
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
@@ -383,6 +387,10 @@ def main():
         saving_folder += "_mem"
     if args.lora_enabled:
         saving_folder += "_lora"
+    if args.target_use_gt:
+        saving_folder += "_targt"
+    if args.augment_question:
+        saving_folder += "_qaug"
     print(saving_folder)
     args.folder = saving_folder
     
