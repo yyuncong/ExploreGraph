@@ -461,10 +461,12 @@ class ExploreDataset(Dataset):
             raw_question = episode["question"]
             if episode["question"] in self.augmented_questions.keys():
                 phrased_question = np.random.choice(self.augmented_questions[episode["question"]])
-                print(f"raw question {raw_question} phrased question {phrased_question}")
+                #print(f"raw question {raw_question} phrased question {phrased_question}")
             else:
                 phrased_question = raw_question
-        text = f"Question: {phrased_question}\n"
+            text = f"Question: {phrased_question}\n"
+        else:
+            text = f"Question: {episode['question']}\n"
 
         if self.egocentric_views:
             try:

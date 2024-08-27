@@ -294,8 +294,8 @@ def main():
     parser.add_argument("--lora_enabled", action="store_true", default=False)
     parser.add_argument("--visual_feature_size", type=int, default=6)
     parser.add_argument("--max_length", type=int, default=2048)
-    parser.add_argument("--map_category", action="store_true", default=False)
-    parser.add_argument("--mapping_rate", type=float, default=0.5)
+    parser.add_argument("--mix_gt", action="store_true", default=False)
+    parser.add_argument("--gt_rate", type=float, default=0.3)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question", action="store_true", default=False)
     args = parser.parse_args()
@@ -378,9 +378,9 @@ def main():
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
         saving_folder += f"_coeff{args.filter_coeff}"
-    if args.map_category:
-        saving_folder += "_map"
-        saving_folder += f"_rate{args.mapping_rate}"
+    if args.mix_gt:
+        saving_folder += "_mix"
+        saving_folder += f"_gtrate{args.gt_rate}"
     if args.egocentric_views:
         saving_folder += "_ego"
     if args.action_memory:

@@ -433,7 +433,7 @@ def main():
         max_length=args.max_length,
         visual_feature_size=args.visual_feature_size,
         target_use_gt=False, # only use recognize label for target
-        argument_question=False, # only use raw question for validation
+        augment_question=False, # only use raw question for validation
         split="val",
     )
     train_index, test_index = train_total_dataset.split_index(test_ratio=0.999)
