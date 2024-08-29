@@ -278,13 +278,18 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
         "--egocentric_views",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--num_egocentric_views",
+        type=int,
+        default=5,
     )
     parser.add_argument(
         "--action_memory",
@@ -294,7 +299,7 @@ def main():
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
     parser.add_argument("--patch_size", type=int, default = 1)
-    parser.add_argument("--visual_feature_size", type = int, default = 4)
+    parser.add_argument("--visual_feature_size", type = int, default = 3)
     parser.add_argument("--max_length", type = int, default = 2048)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()

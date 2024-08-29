@@ -251,7 +251,7 @@ class ExploreDataset(Dataset):
         num_egocentric_views=5,
         patch_size=3,
         visual_feature_size=6,
-        gt_rate=0.5,
+        gt_rate=0,
         split="train",
     ):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")

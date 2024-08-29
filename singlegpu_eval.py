@@ -262,13 +262,18 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
         "--egocentric_views",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--num_egocentric_views",
+        type=int,
+        default=5,
     )
     parser.add_argument(
         "--action_memory",
@@ -295,7 +300,7 @@ def main():
     parser.add_argument("--visual_feature_size", type=int, default=6)
     parser.add_argument("--max_length", type=int, default=2048)
     parser.add_argument("--mix_gt", action="store_true", default=False)
-    parser.add_argument("--gt_rate", type=float, default=0.3)
+    parser.add_argument("--gt_rate", type=float, default=0)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question", action="store_true", default=False)
     args = parser.parse_args()
@@ -325,6 +330,7 @@ def main():
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
+        num_egocentric_views=args.num_egocentric_views,
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
@@ -383,6 +389,7 @@ def main():
         saving_folder += f"_gtrate{args.gt_rate}"
     if args.egocentric_views:
         saving_folder += "_ego"
+        saving_folder += f"{args.num_egocentric_views}"
     if args.action_memory:
         saving_folder += "_mem"
     if args.lora_enabled:

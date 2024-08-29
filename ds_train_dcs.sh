@@ -76,18 +76,19 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ckpts/ds_cluster_scannet \
+--folder ckpts/explore_scannet \
 --random_permute \
 --lr=4e-6 \
---num_epochs=10 \
+--num_epochs=6 \
 --batch_size=1 \
 --patch_size=1 \
 --visual_feature_size=3 \
---max_length=5120 \
+--max_length=4508 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
 --augment_question \
+--num_egocentric_views=5 \
 
 
 #--prefiltering \
