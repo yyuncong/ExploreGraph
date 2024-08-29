@@ -116,21 +116,14 @@ def show_sample(sample):
             print(v.shape)
 
 
-def prepare_egocentric_view(egocentric_path, visual_feature_size, patch_size):
+def prepare_egocentric_view(egocentric_path):
     text = "Followings are the egocentric views:\n "
-    num_tokens = (visual_feature_size // patch_size) ** 2
     egocentric_features = []
     for i, view in egocentric_path.items():
-        egocentric_feature = torch.load(view, map_location="cpu")
-        egocentric_feature = merge_patches(
-            egocentric_feature.view(visual_feature_size, visual_feature_size, -1),
-            patch_size,
-        )
-        egocentric_features.append(egocentric_feature)
-        for _ in range(num_tokens):
-            text += f"<scene>"
+        egocentric_features.append(torch.load(view, map_location="cpu"))
+        text += f"<scene> "
     egocentric_features = torch.cat(egocentric_features, dim=0)
-    text += " /\n"
+    text += "/\n"
     return text, egocentric_features
 
 
@@ -146,26 +139,17 @@ def prepare_action_memory(memory_path):
     return text, memory_feature
 
 
-def prepare_frontier(feature_path, frontier_info, visual_feature_size, patch_size):
+def prepare_frontier(feature_path, frontier_info):
     # print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
     try:
         text = f"Below are all the frontiers that we can explore:\n"
-        num_tokens = (visual_feature_size // patch_size) ** 2
         if len(frontier_info) > 0:
             frontier_features = []
             for i, info in enumerate(frontier_info):
-                text += f"frontier {i} "
-                frontier_feature = torch.load(
-                    feature_path[info["rgb_id"]], map_location="cpu"
+                frontier_features.append(
+                    torch.load(feature_path[info["rgb_id"]], map_location="cpu")
                 )
-                frontier_feature = merge_patches(
-                    frontier_feature.view(visual_feature_size, visual_feature_size, -1),
-                    patch_size,
-                )
-                frontier_features.append(frontier_feature)
-                for _ in range(num_tokens):
-                    text += f"<scene>"
-                text += " / "
+                text += f"frontier {i} <scene> / "
             frontier_features = torch.cat(frontier_features, dim=0)
         else:
             text += f"No frontier available "
@@ -207,26 +191,6 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
     return filter_input_ids, filter_length, filter_attention_mask
 
 
-def merge_patches(patches, patch_size):
-    num_patches, num_patches, patch_dim = patches.shape
-    new_num_patches = num_patches // patch_size
-    assert num_patches % patch_size == 0
-    patches = patches.view(
-        new_num_patches,
-        patch_size,
-        new_num_patches,
-        patch_size,
-        patch_dim,
-    )
-    patches = (
-        patches.permute(0, 2, 1, 3, 4)
-        .reshape(new_num_patches, new_num_patches, patch_size**2, patch_dim)
-        .mean(-2)
-    )
-    patches = patches.view(new_num_patches * new_num_patches, patch_dim)
-    return patches
-
-
 # format object input after generating prefiltering result
 def prepare_snapshot_input(
     seen_classes,
@@ -236,7 +200,6 @@ def prepare_snapshot_input(
     prefiltering,
     ranking,
     topk,
-    num_tokens,
 ):
 
     # Cases where prefiltering over objects is needed
@@ -278,9 +241,7 @@ def prepare_snapshot_input(
         sorted_class_names = sorted(class_names_list)
         for class_name in sorted_class_names:
             text += f"{class_name}, "
-        for _ in range(num_tokens):
-            text += "<scene>"
-        text += " / "
+        text += "<scene> / "
 
     if snapshot_index == 0:
         text += f"No snapshot available "
@@ -308,7 +269,6 @@ def construct_selection_prompt(
     ranking,
     topk,
     max_length,
-    num_tokens,
 ):
     snapshot_text, snapshot_features, snapshot_prediction, snapshot_index = (
         prepare_snapshot_input(
@@ -319,7 +279,6 @@ def construct_selection_prompt(
             prefiltering,
             ranking,
             topk,
-            num_tokens,
         )
     )
 
@@ -331,7 +290,7 @@ def construct_selection_prompt(
     scene_feature = feature_before_snapshot + [snapshot_features] + [frontier_features]
     scene_feature = [f for f in scene_feature if f is not None]
     scene_feature = torch.cat(scene_feature, dim=0)
-    if len(scene_feature) // num_tokens > 50:
+    if len(scene_feature) > 50:
         return "too many objects"
 
     # format prediction
@@ -426,8 +385,6 @@ class ExploreDataset(Dataset):
         # Jiachen TODO: add your parameter here
         top_k_categories=5,
         num_egocentric_views=5,
-        patch_size=3,
-        visual_feature_size=6,
         split="train",
     ):
         # scene_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory"
@@ -468,11 +425,6 @@ class ExploreDataset(Dataset):
         )
         self.add_positional_encodings = add_positional_encodings
 
-        self.patch_size = patch_size
-        assert visual_feature_size % self.patch_size == 0
-        self.num_visual_tokens = (visual_feature_size // self.patch_size) ** 2
-        self.visual_feature_size = visual_feature_size
-
     def load_step(self, step_path):
         with open(step_path, "r") as f:
             stepdata = json.load(f)
@@ -491,7 +443,7 @@ class ExploreDataset(Dataset):
         for frontier in stepdata["frontiers"]:
             # placeholder for loading frontier feature
             rgb_id = frontier["rgb_id"]
-            feature = os.path.join(frontier_folder, rgb_id.replace(".png", "_full.pt"))
+            feature = os.path.join(frontier_folder, rgb_id.replace(".png", ".pt"))
             stepdata["frontier_features"][rgb_id] = feature
 
         stepdata["snapshot_features"] = {}
@@ -499,7 +451,7 @@ class ExploreDataset(Dataset):
         snapshot_folder = os.path.join(epi_path, "object_features")
         for snapshot in stepdata["snapshots"]:
             rgb_id = snapshot["img_id"]
-            feature = os.path.join(snapshot_folder, rgb_id.replace(".png", "_full.pt"))
+            feature = os.path.join(snapshot_folder, rgb_id.replace(".png", ".pt"))
             stepdata["snapshot_features"][rgb_id] = feature
             object_ids = snapshot["obj_ids"]
             stepdata["snapshot_objects"][rgb_id] = object_ids
@@ -507,15 +459,13 @@ class ExploreDataset(Dataset):
         if stepdata["previous_choice"] is not None:
             stepdata["previous_choice"] = os.path.join(
                 frontier_folder,
-                stepdata["previous_choice"].replace(".png", "_full.pt"),
+                stepdata["previous_choice"].replace(".png", ".pt"),
             )
 
         stepdata["egocentric_features"] = {}
         for view_idx in range(self.num_egocentric_views):
             egocentric_view_folder = os.path.join(epi_path, f"egocentric")
-            featrue = os.path.join(
-                egocentric_view_folder, f"{step}_view_{view_idx}_full.pt"
-            )
+            featrue = os.path.join(egocentric_view_folder, f"{step}_view_{view_idx}.pt")
             stepdata["egocentric_features"][view_idx] = featrue
         return stepdata
 
@@ -582,9 +532,11 @@ class ExploreDataset(Dataset):
         step_path, episode_id = self.data[idx]
         try:
             step = self.load_step(step_path)
+
         except:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
+
         episode = self.episodes[episode_id]
         # shuffle = self.random_permute and (self.split == "train")
         # Jiachen TODO 1: load ranking
@@ -612,9 +564,7 @@ class ExploreDataset(Dataset):
         if self.egocentric_views:
             try:
                 egocentric_text, egocentric_features = prepare_egocentric_view(
-                    step["egocentric_features"],
-                    self.visual_feature_size,
-                    self.patch_size,
+                    step["egocentric_features"]
                 )
             except:
                 index = np.random.choice(self.indices)
@@ -657,12 +607,6 @@ class ExploreDataset(Dataset):
                 keep_indices.append(i)
                 snapshot_feature = torch.load(
                     step["snapshot_features"][rgb_id], map_location="cpu"
-                )
-                snapshot_feature = merge_patches(
-                    snapshot_feature.view(
-                        self.visual_feature_size, self.visual_feature_size, -1
-                    ),
-                    self.patch_size,
                 )
                 snapshot_class = [
                     obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]
@@ -733,8 +677,6 @@ class ExploreDataset(Dataset):
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
-            self.visual_feature_size,
-            self.patch_size,
         )
         frontier_positions = torch.tensor(step["frontier_positions"])
         if self.add_positional_encodings:
@@ -860,7 +802,7 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 880
+            if int(self.episodes[i]["scene"].split("-")[0]) > 850
             and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [

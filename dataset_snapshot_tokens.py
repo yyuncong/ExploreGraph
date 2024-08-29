@@ -206,7 +206,8 @@ def prepare_prefiltering_input(question, tokenizer, classes, ranking, max_length
     return filter_input_ids, filter_length, filter_attention_mask
 
 
-# Merge the 24*24 patches to 2*2 patches
+# Merge the 6*6 patches to 2*2 patches
+# 1 scene is associated with 4 patches
 def merge_patches(patches, patch_size):
     num_patches, num_patches, patch_dim = patches.shape
     new_num_patches = num_patches // patch_size
@@ -250,7 +251,7 @@ class ExploreDataset(Dataset):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_new_new")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_clustering_reverse_merge_3.5")
         self.tokenizer = tokenizer
         self.scene_token = scene_token
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
@@ -279,12 +280,22 @@ class ExploreDataset(Dataset):
 
         self.patch_size = patch_size
         assert visual_feature_size % self.patch_size == 0
+        # each object is represented by 4 visual tokens(by default)
         self.num_visual_tokens = (visual_feature_size // self.patch_size) ** 2
         self.visual_feature_size = visual_feature_size
 
     def load_step(self, step_path):
-        with open(step_path, "r") as f:
-            stepdata = json.load(f)
+        try:
+            with open(step_path, "r", encoding='utf-8') as f:
+                stepdata = json.load(f)
+        except Exception as e:
+            print("step file loading error")
+            print(f"Error loading data at location {step_path}: {e}")
+            index = np.random.choice(self.indices)
+            print(f"new index loaded {index}")
+            new_step_path, new_epi_id = self.data[index]
+            print(f"new step path attempted {new_step_path}")
+            return self.__getitem__(index)
         epi_path = "/".join(step_path.split("/")[:-1])
         step_file_name = step_path.split("/")[-1]
         step = int(step_file_name.split(".")[0])
@@ -303,7 +314,7 @@ class ExploreDataset(Dataset):
             stepdata["frontier_features"][rgb_id] = feature
         stepdata["snapshot_features"] = {}
         stepdata["snapshot_objects"] = {}
-        snapshot_folder = os.path.join(epi_path, "object_features")
+        snapshot_folder = os.path.join(epi_path, "egocentric")
         for snapshot in stepdata["snapshots"]:
             rgb_id = snapshot["img_id"]
             feature = os.path.join(snapshot_folder, rgb_id.replace(".png", "_full.pt"))
@@ -357,6 +368,8 @@ class ExploreDataset(Dataset):
             steps_data = []
             for step in range(metadata["episode_length"]):
                 stepdata_path = os.path.join(epi_path, f"{pad_zero(str(step),4)}.json")
+                if not os.path.exists(stepdata_path):
+                    continue
                 steps_data.append((stepdata_path, i))
                 self.episode2step[i].append(data_count)
                 data_count += 1
@@ -369,28 +382,41 @@ class ExploreDataset(Dataset):
 
     def __getitem__(self, idx):
         step_path, episode_id = self.data[idx]
-        try:
-            step = self.load_step(step_path)
-        except:
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
+        # try:
+        step = self.load_step(step_path)
+        # except:
+        #     index = np.random.choice(self.indices)
+        #     return self.__getitem__(index)
         episode = self.episodes[episode_id]
 
         shuffle = self.random_permute and (self.split == "train")
         ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         multi_src_features = []
 
-        with open(self.obj_json_map[episode["scene"]]) as f:
-            obj_json = json.load(f)
+        try:
+            
+            with open(self.obj_json_map[episode["scene"]]) as f:
+                obj_json = json.load(f)
+        except Exception as e:
+            print(f"Error loading data at location {self.obj_json_map[episode['scene']]}: {e}")
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
         obj_map = {obj["id"]: obj["class_name"] for obj in obj_json}
         obj_positions_map = {
             obj["id"]: (np.array(obj["bbox"][1]) + np.array(obj["bbox"][0])) / 2
             for obj in obj_json
         }
-        obj_positions_map = {
-            key: value[[0, 2, 1]] - step["position"]
-            for key, value in obj_positions_map.items()
-        }
+        try:
+            obj_positions_map = {
+                key: value[[0, 2, 1]] - step["position"]
+                for key, value in obj_positions_map.items()
+            }
+        except:
+            print("loss information in stepdata")
+            print(step_path)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+            
 
         text = f"Question: {episode['question']}\n"
 
@@ -430,6 +456,7 @@ class ExploreDataset(Dataset):
                     step["previous_choice"]
                 )
             except:
+                
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
             text += memory_text
@@ -450,9 +477,19 @@ class ExploreDataset(Dataset):
             # No need to filter here (both scene_graph and snapshots objects from the json files)
             try:
                 keep_indices.append(i)
+                # a simple work round for step feature paths
+                snapshot_feature_path = step["snapshot_features"][rgb_id].split('/')
+                snapshot_feature_path[-1] = snapshot_feature_path[-1].replace('-','_')
+                snapshot_feature_path = '/'.join(snapshot_feature_path)
+                '''
                 snapshot_feature = torch.load(
                     step["snapshot_features"][rgb_id], map_location="cpu"
                 )
+                '''
+                snapshot_feature = torch.load(
+                    snapshot_feature_path, map_location="cpu"
+                )
+                #2*2*dim, 4 visual features to represent 1 snapshot
                 snapshot_feature = merge_patches(
                     snapshot_feature.view(
                         self.visual_feature_size, self.visual_feature_size, -1
@@ -480,7 +517,12 @@ class ExploreDataset(Dataset):
                     )
                 )
                 snapshot_index += 1
-            except:
+            except Exception as e:
+                # remove current wrong sample?
+                if idx in set(self.indices):
+                    self.indices = list(set(self.indices) - {idx})
+                    print(len(self.indices))
+                    print(f"Error loading data at location {step['snapshot_features'][rgb_id]}: {e}")
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
         if self.add_positional_encodings:
@@ -570,14 +612,15 @@ class ExploreDataset(Dataset):
             print('shuffled keep indices', keep_indices)
             print('shuffled snapshot classes', snapshot_classes)
             """
+        
         text += "These are the snapshots:\n"
         for i, class_names in enumerate(snapshot_classes):
             text += f"snapshot {i} "
-            # class_names_set = set(class_names)
-            # class_names_list = list(class_names_set)
-            # sorted_class_names = sorted(class_names_list)
-            # for class_name in sorted_class_names:
-            #     text += f"{class_name}, "
+            class_names_set = set(class_names)
+            class_names_list = list(class_names_set)
+            sorted_class_names = sorted(class_names_list)
+            for class_name in sorted_class_names:
+                text += f"{class_name}, "
             for _ in range(self.num_visual_tokens):
                 text += "<scene>"
             text += " / "
@@ -664,20 +707,22 @@ class ExploreDataset(Dataset):
         scene_feature = torch.cat(multi_src_features, dim=0)
         # print("scene_feature", scene_feature.shape)
 
+        
         if len(scene_feature) // self.num_visual_tokens > 45:
             self.too_many_objects_indices.add(idx)
             if self.split == "train":
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
-
+        
         step["scene_feature"] = scene_feature
-
+        
+        
         if self.max_length <= len(text):
             self.too_many_objects_indices.add(idx)
             if self.split == "train":
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
-
+        
         # assert self.max_length > len(text)
         # assert self.max_length > len(
         #     scene_feature

@@ -238,6 +238,8 @@ def load_pretrained_model(
             vision_tower.load_model()
         vision_tower.to(device=device, dtype=torch.float16)
         image_processor = vision_tower.image_processor
+        # remove vision_tower here
+        del vision_tower
 
     if hasattr(model.config, "max_sequence_length"):
         context_len = model.config.max_sequence_length

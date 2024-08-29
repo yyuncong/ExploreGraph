@@ -8,7 +8,8 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot_tokens import ExploreDataset
+#from dataset_snapshot_tokens import ExploreDataset
+from dataset_snapshot_tokens_new import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -54,8 +55,10 @@ logging.basicConfig(
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
+from loader import *
 
 
+'''
 def load_checkpoint(model, args, name="checkpoint.pt"):
     checkpoint_path = os.path.join(args.folder, name)
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -83,7 +86,7 @@ def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
     if args.rank == 0:
         torch.save(cpu_state, name)
     # torch.distributed.barrier()
-
+'''
 
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
     llava_model = llava_model.train()
@@ -275,7 +278,7 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
@@ -284,13 +287,20 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--num_egocentric_views",
+        type=int,
+        default=5,
+    )
+    parser.add_argument(
         "--action_memory",
         action="store_true",
         default=False,
     )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
-    parser.add_argument("--patch_size", type=int, default=3)
+    parser.add_argument("--patch_size", type=int, default = 1)
+    parser.add_argument("--visual_feature_size", type = int, default = 3)
+    parser.add_argument("--max_length", type = int, default = 2048)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -322,8 +332,9 @@ def main():
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         patch_size=args.patch_size,
+        visual_feature_size=args.visual_feature_size,
         tokenizer=tokenizer,
-        max_length=2048,
+        max_length=args.max_length,
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
@@ -390,6 +401,10 @@ def main():
     # print("too many objects num (pre)", val_total_dataset.num_too_many_objects)
     print("object not found num: ", len(val_total_dataset.obj_not_found_indices))
     print("too many objects num: ", len(val_total_dataset.too_many_objects_indices))
+    print("too long prompts num: ", len(val_total_dataset.too_long_prompts_indices))
+    print("too long prompts num: (too many objects)", len(
+        val_total_dataset.too_many_objects_indices & val_total_dataset.too_long_prompts_indices
+    ))
     print("object filtered num: ", len(val_total_dataset.answer_obj_filtered_indices))
 
 

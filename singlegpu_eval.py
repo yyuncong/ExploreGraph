@@ -8,12 +8,14 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot_tokens import ExploreDataset
+from dataset_snapshot_tokens_new import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
 from easydict import EasyDict
 from accelerate import load_checkpoint_and_dispatch
+import deepspeed
+from peft import LoraConfig, get_peft_model
 
 import numpy as np
 import torch
@@ -54,35 +56,8 @@ logging.basicConfig(
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
-
-
-def load_checkpoint(model, args, name="checkpoint.pt"):
-    checkpoint_path = os.path.join(args.folder, name)
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    # wait until checkpoints in all processes are loaded
-    # torch.distributed.barrier()
-    # with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT):
-    model.load_state_dict(checkpoint, True)
-    del checkpoint
-    # torch.cuda.empty_cache()
-    # torch.distributed.barrier()
-
-
-def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    # save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    # with FSDP.state_dict_type(
-    #    model, StateDictType.FULL_STATE_DICT, save_policy
-    # ):
-    cpu_state = model.state_dict()
-    if args.rank == 0:
-        torch.save(cpu_state, name)
-    # torch.distributed.barrier()
+import json
+from loader import *
 
 
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
@@ -151,7 +126,6 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         loss2.backward()
         optimizer.step()
         pbar.set_description(f"loss: {loss.item():.3f} loss2: {loss2.item():.3f} ")
-
 
 def eval(dataloader, model, tokenizer, args):
     model.eval()
@@ -254,7 +228,6 @@ def eval(dataloader, model, tokenizer, args):
     print("frontiers total:", frontier_gt_total)
     print("objects total:", object_gt_total)
 
-
 def main():
     parser = argparse.ArgumentParser()
     # distributed training args
@@ -289,13 +262,18 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
         "--egocentric_views",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--num_egocentric_views",
+        type=int,
+        default=5,
     )
     parser.add_argument(
         "--action_memory",
@@ -316,6 +294,15 @@ def main():
         "--add_positional_encodings", action="store_true", default=False
     )
     parser.add_argument("--patch_size", type=int, default=3)
+    # arguments for deepspeed and lora
+    parser.add_argument("--deepspeed_enabled", action="store_true", default=False)
+    parser.add_argument("--lora_enabled", action="store_true", default=False)
+    parser.add_argument("--visual_feature_size", type=int, default=6)
+    parser.add_argument("--max_length", type=int, default=2048)
+    parser.add_argument("--mix_gt", action="store_true", default=False)
+    parser.add_argument("--gt_rate", type=float, default=0)
+    parser.add_argument("--target_use_gt", action="store_true", default=False)
+    parser.add_argument("--augment_question", action="store_true", default=False)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -343,13 +330,17 @@ def main():
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
+        num_egocentric_views=args.num_egocentric_views,
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         add_positional_encodings=args.add_positional_encodings,
         patch_size=args.patch_size,
         tokenizer=tokenizer,
-        max_length=2048,
+        max_length=args.max_length,
+        visual_feature_size=args.visual_feature_size,
+        target_use_gt=False,
+        augment_question=False, # disable question augmentation in evaluation phase
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
@@ -383,6 +374,8 @@ def main():
     del model.model.vision_tower
 
     saving_folder = f"{args.folder}_{args.lr}_patch{args.patch_size}"
+    if args.deepspeed_enabled:
+        saving_folder += "_ds"
     if args.add_positional_encodings:
         saving_folder += f"_pos"
     if args.random_permute:
@@ -391,14 +384,28 @@ def main():
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
         saving_folder += f"_coeff{args.filter_coeff}"
+    if args.mix_gt:
+        saving_folder += "_mix"
+        saving_folder += f"_gtrate{args.gt_rate}"
     if args.egocentric_views:
         saving_folder += "_ego"
+        saving_folder += f"{args.num_egocentric_views}"
     if args.action_memory:
         saving_folder += "_mem"
+    if args.lora_enabled:
+        saving_folder += "_lora"
+    if args.target_use_gt:
+        saving_folder += "_targt"
+    if args.augment_question:
+        saving_folder += "_qaug"
     print(saving_folder)
     args.folder = saving_folder
-
-    load_checkpoint(model, args, name=f"checkpoint_{args.ckpt_index}.pt")
+    
+    if args.deepspeed_enabled:
+        #saving_folder = os.path.join(args.folder,f"checkpoint_{args.ckpt_index}")
+        load_ds_checkpoint(model,args.folder,args.ckpt_index, True)
+    else:
+        load_checkpoint(model, args, name=f"checkpoint_{args.ckpt_index}.pt")
     model = model.float()
 
     model = model.to("cuda")

@@ -4,12 +4,14 @@
 #SBATCH --error=log/fsdp-dcs-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=16
+#SBATCH --nodes=3
 # activate the environment
 #source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 # source ~/.bashrc_dcs
 # conda activate mllm
 
+source ~/.bashrc_dcs
+conda activate /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3/envs/jc-eqa
 
 echo "SLURM_JOB_GPUS=$SLURM_JOB_GPUS"
 echo "SLURM_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK"
@@ -68,5 +70,5 @@ fsdp_train_random_switch.py \
 --top_k_categories=10 \
 --lr=1e-7 \
 --num_epochs=10 \
---batch_size=1 \
+--batch_size=2 \
 --save_interval=1

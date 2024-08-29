@@ -8,12 +8,14 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot_tokens import ExploreDataset
+from dataset_snapshot_tokens_new import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
 from easydict import EasyDict
 from accelerate import load_checkpoint_and_dispatch
+import deepspeed
+from peft import LoraConfig, get_peft_model
 
 import numpy as np
 import torch
@@ -45,6 +47,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 import logging
+import json
 
 logging_path = "log.log"
 logging.basicConfig(
@@ -58,6 +61,7 @@ logging.basicConfig(
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
+from loader import *
 
 
 def set_seed(seed):
@@ -65,32 +69,6 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-
-def load_checkpoint(model, args, name="checkpoint.pt"):
-    checkpoint = torch.load(name, map_location="cpu")
-    # wait until checkpoints in all processes are loaded
-    torch.distributed.barrier()
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT):
-        model.load_state_dict(checkpoint, True)
-    del checkpoint
-    torch.cuda.empty_cache()
-    torch.distributed.barrier()
-
-
-def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
-        cpu_state = model.state_dict()
-    if args.rank == 0:
-        torch.save(cpu_state, name)
-    torch.distributed.barrier()
 
 
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
@@ -324,6 +302,13 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
+    parser.add_argument("--patch_size", type=int, default=1)
+    parser.add_argument("--visual_feature_size", type=int, default=3)
+    parser.add_argument("--max_length", type=int, default=4096)
+    parser.add_argument("--mix_gt", action="store_true", default=False)
+    parser.add_argument("--gt_rate", type=float, default=0.5)
+    parser.add_argument("--target_use_gt", action="store_true", default=False)
+    parser.add_argument("--augment_question",action="store_true",default=False)
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -337,6 +322,11 @@ def main():
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         model_path, None, model_name, device_map=None, add_multisensory_token=True
     )
+    # freeze model
+    model.requires_grad_(True)
+    del model.model.vision_tower
+    
+    model.train()
     # from dataset import (
     #     SCENE_TOKEN
     # )
@@ -360,7 +350,13 @@ def main():
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
-        max_length=2048,
+        patch_size = args.patch_size,
+        max_length=args.max_length,
+        mix_gt=args.mix_gt,
+        gt_rate=args.gt_rate,
+        target_use_gt=args.target_use_gt,
+        augment_question=args.augment_question,
+        visual_feature_size=args.visual_feature_size
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
     train_dataset = Subset(dataset, train_index)
@@ -390,10 +386,6 @@ def main():
         collate_fn=dataset.collate_wrapper,
     )
 
-    # freeze model
-    model.requires_grad_(True)
-    del model.model.vision_tower
-    model.train()
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-6)
 

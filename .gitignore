@@ -169,3 +169,12 @@ cython_debug/
 test.py
 unit_test.py
 outputs/
+log/
+log_old/
+bad_cases/
+eval_sh/
+ckpts/
+eval_log/
+hm3d_obj_bbox_all/
+core*
+
