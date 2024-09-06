@@ -386,7 +386,7 @@ def main():
     parser.add_argument("--gt_rate", type=float, default=0)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question",action="store_true",default=False)
-    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=12)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=3)
     parser.add_argument("--image_prompt_patch_size", type=int, default=1)
     # TODO: include deepspeed arguments here
     parser = deepspeed.add_config_arguments(parser)

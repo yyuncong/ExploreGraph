@@ -246,14 +246,14 @@ def format_questions(
         Definitions:\n\
         Snapshot: A focused observation of several objects. Choosing a snapshot means that you are selecting the observed objects in the snapshot as the target objects to help answer the question.\n\
         Frontier: An unexplored region that could potentially lead to new information for answering the question. Selecting a frontier means that you will further explore that direction.\n"
-    if "input_modality" not in metadata.keys() or metadata["task_type"] == "description":
+    if "task_type" not in metadata.keys() or metadata["task_type"] == "description":
         question = metadata["question"]
         if augment_question and question in augmented_questions.keys():
             question = np.random.choice(augmented_questions[question])
             #print(f"raw question {raw_question} phrased question {phrased_question}")
         text += f"Question: {question}\n"
     elif metadata["task_type"] == "image":
-        text += "Question: Find the object presented in the following image\n"
+        text += "Question: Could you find the object presented in the following image\n"
         image_feature = torch.load(metadata["image_path"].replace(".png","_full.pt"), map_location="cpu")
         num_tokens = (image_prompt_visual_feature_size // image_prompt_patch_size) ** 2
         question_feature = merge_patches(
@@ -266,9 +266,9 @@ def format_questions(
         )
         for _ in range(num_tokens):
             text += "<scene>"
-        text += " /\n"
+        text += "?/\n"
     elif metadata["task_type"] == "object":
-        text += f"Question: Find a {metadata['target_obj_class']}\n"
+        text += f"Question: Could you find a {metadata['target_obj_class']}?\n"
     return text, question_feature
         
         
@@ -300,10 +300,11 @@ class ExploreDataset(Dataset):
         split="train",
     ):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
-        self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
+        #self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
+        self.ranking_path = "prefiltering/goatbench_sample.json"
         #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_goatbench")
         self.category_map_path = "bbox_mapping/mpcat40_full_map.json"
         self.augmented_questions_path = "question_augment/augmented_generated_questions.json"
         with open(self.category_map_path, "r") as f:
@@ -477,10 +478,6 @@ class ExploreDataset(Dataset):
         episode = self.episodes[episode_id]
 
         shuffle = self.random_permute and (self.split == "train")
-        prefilter_key = episode["question"] + "_" + episode["scene"]
-        if "task_type" in episode.keys():
-            prefilter_key += "_" + episode["task_type"]
-        ranking = self.candidate_rankings[prefilter_key]
         multi_src_features = []
         try:
             with open(self.obj_json_map[episode["scene"]]) as f:
@@ -505,27 +502,21 @@ class ExploreDataset(Dataset):
             print(step_path)
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        '''
-        text = "Task: You are an agent in an indoor scene tasked with answering quesions by observing the surroundings and exploring the environment. To answer the question, you are required to choose either a snapshot or a frontier based on the egocentric views of your surroundings.\n"
-        text += "Definitions:\n"
-        text += "Snapshot: A focused observation of several objects. Choosing a snapshot means that you are selecting the observed objects in the snapshot as the target objects to help answer the question.\n"
-        text += "Frontier: An unexplored region that could potentially lead to new information for answering the question. Selecting a frontier means that you will further explore that direction.\n "
-        if self.augment_question:
-            raw_question = episode["question"]
-            if episode["question"] in self.augmented_questions.keys():
-                phrased_question = np.random.choice(self.augmented_questions[episode["question"]])
-                #print(f"raw question {raw_question} phrased question {phrased_question}")
-            else:
-                phrased_question = raw_question
-            text += f"Question: {phrased_question}\n"
+        # format prefiltering
+        prefilter_key = episode["question"] + "_" + episode["scene"]
+        if "task_type" in episode.keys():
+            prefilter_key += "_" + episode["task_type"]
+        if prefilter_key in self.candidate_rankings.keys():
+            ranking = self.candidate_rankings[prefilter_key]
         else:
-            text += f"Question: {episode['question']}\n"
-        '''
-        text,question_feature = format_questions(episode, 
-                True, self.augment_question, 
+            # randomly assign a ranking
+            ranking = list(set([obj["class_name"] for obj in obj_json]))
+        question_text,question_feature = format_questions(episode, 
+                False, self.augment_question, 
                 self.augmented_questions, 
                 self.image_prompt_visual_feature_size, 
                 self.image_prompt_patch_size)
+        text = question_text
         # add features for the image prompt
         multi_src_features.append(question_feature)
         if self.egocentric_views:
@@ -721,7 +712,8 @@ class ExploreDataset(Dataset):
                 snapshot_features[r_idx] for r_idx in random_snapshot_index
             ]
         
-        text += "These are the snapshots (followed with contained object classes).\n"
+        #text += "These are the snapshots (followed with contained object classes).\n"
+        text 
         for i, class_names in enumerate(snapshot_classes):
             text += f"snapshot {i} "
             #text += f"{i} "
@@ -881,7 +873,7 @@ class ExploreDataset(Dataset):
                 input_dict.filter_length,
                 input_dict.filter_attention_mask,
             ) = prepare_prefiltering_input(
-                episode["question"],
+                question_text,
                 self.tokenizer,
                 classes,
                 ranking,

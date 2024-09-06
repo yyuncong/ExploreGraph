@@ -301,6 +301,8 @@ def main():
     parser.add_argument("--top_k_categories", type=int, default=5)
     parser.add_argument("--patch_size", type=int, default = 1)
     parser.add_argument("--visual_feature_size", type = int, default = 3)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
+    parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     parser.add_argument("--max_length", type = int, default = 2048)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()

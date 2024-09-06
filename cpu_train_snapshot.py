@@ -310,6 +310,8 @@ def main():
     parser.add_argument("--gt_rate", type=float, default=0.5)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question",action="store_true",default=False)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
+    parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -357,7 +359,9 @@ def main():
         gt_rate=args.gt_rate,
         target_use_gt=args.target_use_gt,
         augment_question=args.augment_question,
-        visual_feature_size=args.visual_feature_size
+        visual_feature_size=args.visual_feature_size,
+        image_prompt_visual_feature_size=args.image_prompt_visual_feature_size,
+        image_prompt_patch_size=args.image_prompt_patch_size
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
     train_dataset = Subset(dataset, train_index)
@@ -400,11 +404,11 @@ def main():
         print("Start training epoch %d" % epoch)
 
         # Jiachen TODO: update train_one_epoch for your feature
-        dataset.split = "train"
+        dataset.split = "val"
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
-        dataset.split = "val"
+        #dataset.split = "val"
         print("evaluating")
         # Jiachen TODO: update eval for your feature
         # eval(val_dataloader, model, tokenizer, args)
