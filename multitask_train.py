@@ -145,6 +145,15 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
             filter_input_ids = sample.filter_input_ids.to("cuda")#.to("cpu")
             filter_attention_mask = sample.filter_attention_mask.to("cuda")#.to("cpu")
             filter_labels = filter_input_ids.clone()
+            
+            filter_feature_dict = EasyDict(
+                scene_feature=sample.filter_feature.to("cuda"),
+                scene_insert_loc=sample.filter_insert_loc,
+                scene_length=sample.filter_feature_length,
+            )
+            # there are no features should be included
+            if filter_feature_dict.scene_feature.shape[1] == 0:
+                filter_feature_dict = None
             # choose the first answer as the separator
             filter_answer_indices = torch.where(filter_labels == 22550)[1]
             for j, answer_idx in enumerate(filter_answer_indices):
@@ -155,7 +164,7 @@ def train_one_epoch(dataloader, optimizer, model_engine, tokenizer, loss_fn, arg
                     input_ids=filter_input_ids,
                     attention_mask=filter_attention_mask,
                     labels=filter_labels,
-                    feature_dict=None,
+                    feature_dict=filter_feature_dict,
                     output_hidden_states=True,
                 )
             filter_loss = filter_outputs.loss * args.filter_coeff
@@ -284,6 +293,8 @@ def format_saving_folder(args):
         saving_folder += "_targt"
     if args.augment_question:
         saving_folder += "_qaug"
+    img_prompt_size = args.image_prompt_visual_feature_size//args.image_prompt_patch_size
+    saving_folder += f"_img{img_prompt_size}"
     return saving_folder
 
 def main():

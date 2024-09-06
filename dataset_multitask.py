@@ -117,7 +117,8 @@ def show_sample(sample):
 
 
 def prepare_egocentric_view(egocentric_path, visual_feature_size, patch_size):
-    text = "Followings are the egocentric views(in left, right and forward directions):\n "
+    #text = "Followings are the egocentric views(in left, right and forward directions):\n "
+    text = "Followings are the egocentric views:\n "
     num_tokens = (visual_feature_size // patch_size) ** 2
     egocentric_features = []
     for i, view in egocentric_path.items():
