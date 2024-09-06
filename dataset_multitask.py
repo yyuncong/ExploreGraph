@@ -887,6 +887,15 @@ class ExploreDataset(Dataset):
                 self.max_length,
                 self.top_k_categories,
             )
+            # prepare image prompt feature for prefiltering
+            if question_feature is not None:
+                input_dict.filter_feature = question_feature
+                input_dict.filter_insert_loc = (
+                    (input_dict.filter_input_ids == self.scene_token_id).nonzero()[:, 1].reshape(-1)
+                )
+            else:
+                input_dict.filter_feature = torch.empty((0,1024))
+                input_dict.filter_insert_loc = torch.empty((0,))
         return input_dict
 
     def collate_wrapper(self, batch):
@@ -903,6 +912,16 @@ class ExploreDataset(Dataset):
 
         if self.prefiltering:
             max_filter_length = max(b.filter_length for b in batch) + 1
+            max_filter_feature_length = max(b.filter_feature.shape[0] for b in batch)
+            
+            # align filter feature 
+            filter_feature = torch.zeros((len(batch), max_filter_feature_length, 1024))
+            filter_insert_loc = torch.zeros((len(batch), max_filter_feature_length))
+            
+            for j, b in enumerate(batch):
+                filter_feature[j, : b.filter_feature.shape[0]] = b.filter_feature
+                filter_insert_loc[j, : b.filter_insert_loc.shape[0]] = b.filter_insert_loc
+                
             return EasyDict(
                 input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
                 attention_mask=torch.cat([b.attention_mask for b in batch])[
@@ -920,6 +939,12 @@ class ExploreDataset(Dataset):
                 filter_attention_mask=torch.cat(
                     [b.filter_attention_mask for b in batch]
                 )[..., :max_filter_length],
+                filter_feature=filter_feature,
+                filter_insert_loc=filter_insert_loc.to(torch.long),
+                filter_feature_length=torch.tensor([b.filter_feature.shape[0] for b in batch]),
+                max_filter_feature_length=torch.tensor(
+                    [b.scene_feature.shape[0] for b in batch]
+                )
             )
         return EasyDict(
             input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
