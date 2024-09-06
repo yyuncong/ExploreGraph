@@ -239,23 +239,23 @@ def format_questions(
     image_prompt_patch_size = 1
     ):
     
-    text = ''
+    text,question_feature = '', None
     if augment_prompt:
         text += "Task: You are an agent in an indoor scene tasked with answering quesions by observing the surroundings and exploring the environment. To answer the question, you are required to choose either a snapshot or a frontier based on the egocentric views of your surroundings.\n\
         Definitions:\n\
         Snapshot: A focused observation of several objects. Choosing a snapshot means that you are selecting the observed objects in the snapshot as the target objects to help answer the question.\n\
         Frontier: An unexplored region that could potentially lead to new information for answering the question. Selecting a frontier means that you will further explore that direction.\n"
-    if "input_modality" not in metadata.keys() or metadata["input_modality"] == "description":
+    if "input_modality" not in metadata.keys() or metadata["task_type"] == "description":
         question = metadata["question"]
         if augment_question and question in augmented_questions.keys():
             question = np.random.choice(augmented_questions[question])
             #print(f"raw question {raw_question} phrased question {phrased_question}")
         text += f"Question: {question}\n"
-    elif metadata["input_modality"] == "image":
+    elif metadata["task_type"] == "image":
         text += "Question: Find the object presented in the following image\n"
-        image_feature = torch.load(metadata["image_prompt"], map_location="cpu")
+        image_feature = torch.load(metadata["image_path"].replace(".png","_full.pt"), map_location="cpu")
         num_tokens = (image_prompt_visual_feature_size // image_prompt_patch_size) ** 2
-        image_feature = merge_patches(
+        question_feature = merge_patches(
             image_feature.view(
                 image_prompt_visual_feature_size,
                 image_prompt_visual_feature_size,
@@ -266,13 +266,11 @@ def format_questions(
         for _ in range(num_tokens):
             text += "<scene>"
         text += " /\n"
-    elif metadata["input_modality"] == "category":
-        text += f"Question: Find the object belongs to the category {metadata['target_object_category']}\n"
-    return text
+    elif metadata["task_type"] == "object":
+        text += f"Question: Find a {metadata['target_obj_class']}\n"
+    return text, question_feature
         
         
-        
-    
 
 class ExploreDataset(Dataset):
     def __init__(
@@ -478,11 +476,12 @@ class ExploreDataset(Dataset):
         episode = self.episodes[episode_id]
 
         shuffle = self.random_permute and (self.split == "train")
-        ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
+        prefilter_key = episode["question"] + "_" + episode["scene"]
+        if "task_type" in episode.keys():
+            prefilter_key += "_" + episode["task_type"]
+        ranking = self.candidate_rankings[prefilter_key]
         multi_src_features = []
-
         try:
-            
             with open(self.obj_json_map[episode["scene"]]) as f:
                 obj_json = json.load(f)
         except Exception as e:
@@ -521,12 +520,13 @@ class ExploreDataset(Dataset):
         else:
             text += f"Question: {episode['question']}\n"
         '''
-        text = format_questions(episode, 
+        text,question_feature = format_questions(episode, 
                 True, self.augment_question, 
                 self.augmented_questions, 
                 self.image_prompt_visual_feature_size, 
                 self.image_prompt_patch_size)
-
+        # add features for the image prompt
+        multi_src_features.append(question_feature)
         if self.egocentric_views:
             try:
                 egocentric_text, egocentric_features = prepare_egocentric_view(
