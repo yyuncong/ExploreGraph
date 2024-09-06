@@ -241,11 +241,11 @@ def format_questions(
     
     text = ''
     if augment_prompt:
-        text += "Task: You are an agent in an indoor scene tasked with answering quesions by observing the surroundings and exploring the environment. To answer the question, you are required to choose either a snapshot or a frontier based on the egocentric views of your surroundings.\
-        Definitions:\
-        Snapshot: A focused observation of several objects. Choosing a snapshot means that you are selecting the observed objects in the snapshot as the target objects to help answer the question.\
-        Frontier: An unexplored region that could potentially lead to new information for answering the question. Selecting a frontier means that you will further explore that direction."
-    if metadata["input_modality"] == "description":
+        text += "Task: You are an agent in an indoor scene tasked with answering quesions by observing the surroundings and exploring the environment. To answer the question, you are required to choose either a snapshot or a frontier based on the egocentric views of your surroundings.\n\
+        Definitions:\n\
+        Snapshot: A focused observation of several objects. Choosing a snapshot means that you are selecting the observed objects in the snapshot as the target objects to help answer the question.\n\
+        Frontier: An unexplored region that could potentially lead to new information for answering the question. Selecting a frontier means that you will further explore that direction.\n"
+    if "input_modality" not in metadata.keys() or metadata["input_modality"] == "description":
         question = metadata["question"]
         if augment_question and question in augmented_questions.keys():
             question = np.random.choice(augmented_questions[question])
@@ -522,7 +522,7 @@ class ExploreDataset(Dataset):
             text += f"Question: {episode['question']}\n"
         '''
         text = format_questions(episode, 
-                False, self.augment_question, 
+                True, self.augment_question, 
                 self.augmented_questions, 
                 self.image_prompt_visual_feature_size, 
                 self.image_prompt_patch_size)

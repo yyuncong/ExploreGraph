@@ -9,7 +9,8 @@ import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 #from dataset_snapshot_tokens import ExploreDataset
-from dataset_snapshot_tokens_new import ExploreDataset
+#from dataset_snapshot_tokens_new import ExploreDataset
+from dataset_multitask import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -278,7 +279,7 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
+        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
         help="exploration path",
     )
     parser.add_argument(
@@ -347,6 +348,7 @@ def main():
     # train_index, test_index = dataset.split_index(test_ratio=0.999)
     # train_dataset = Subset(train_total_dataset, train_index)
     val_dataset = Subset(val_total_dataset, test_index)
+    #val_dataset =
     # train_dataloader = DataLoader(
     #     train_dataset,
     #     batch_size=1,

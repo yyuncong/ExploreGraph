@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot_tokens_new import ExploreDataset
+from dataset_multitask import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -262,13 +262,18 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
         help="exploration path",
     )
     parser.add_argument(
         "--egocentric_views",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--num_egocentric_views",
+        type=int,
+        default=5,
     )
     parser.add_argument(
         "--action_memory",
@@ -294,8 +299,10 @@ def main():
     parser.add_argument("--lora_enabled", action="store_true", default=False)
     parser.add_argument("--visual_feature_size", type=int, default=6)
     parser.add_argument("--max_length", type=int, default=2048)
-    parser.add_argument("--map_category", action="store_true", default=False)
-    parser.add_argument("--mapping_rate", type=float, default=0.5)
+    parser.add_argument("--mix_gt", action="store_true", default=False)
+    parser.add_argument("--gt_rate", type=float, default=0)
+    parser.add_argument("--target_use_gt", action="store_true", default=False)
+    parser.add_argument("--augment_question", action="store_true", default=False)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -323,6 +330,7 @@ def main():
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
+        num_egocentric_views=args.num_egocentric_views,
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
@@ -331,8 +339,8 @@ def main():
         tokenizer=tokenizer,
         max_length=args.max_length,
         visual_feature_size=args.visual_feature_size,
-        map_category = True,
-        mapping_rate = 1.0,
+        target_use_gt=False,
+        augment_question=False, # disable question augmentation in evaluation phase
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
@@ -376,15 +384,20 @@ def main():
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
         saving_folder += f"_coeff{args.filter_coeff}"
-    if args.map_category:
-        saving_folder += "_map"
-        saving_folder += f"_rate{args.mapping_rate}"
+    if args.mix_gt:
+        saving_folder += "_mix"
+        saving_folder += f"_gtrate{args.gt_rate}"
     if args.egocentric_views:
         saving_folder += "_ego"
+        saving_folder += f"{args.num_egocentric_views}"
     if args.action_memory:
         saving_folder += "_mem"
     if args.lora_enabled:
         saving_folder += "_lora"
+    if args.target_use_gt:
+        saving_folder += "_targt"
+    if args.augment_question:
+        saving_folder += "_qaug"
     print(saving_folder)
     args.folder = saving_folder
     
