@@ -177,4 +177,5 @@ ckpts/
 eval_log/
 hm3d_obj_bbox_all/
 core*
+prefiltering/
 

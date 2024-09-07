@@ -254,7 +254,10 @@ def format_questions(
         text += f"Question: {question}\n"
     elif metadata["task_type"] == "image":
         text += "Question: Could you find the object presented in the following image\n"
-        image_feature = torch.load(metadata["image_path"].replace(".png","_full.pt"), map_location="cpu")
+        try:
+            image_feature = torch.load(metadata["image_path"].replace(".png","_full.pt"), map_location="cpu")
+        except:
+            return None,None
         num_tokens = (image_prompt_visual_feature_size // image_prompt_patch_size) ** 2
         question_feature = merge_patches(
             image_feature.view(
@@ -294,8 +297,8 @@ class ExploreDataset(Dataset):
         num_egocentric_views=5,
         patch_size=3,
         visual_feature_size=6,
-        image_prompt_visual_feature_size = 12,
-        image_prompt_patch_size = 1,
+        image_prompt_visual_feature_size = 24,
+        image_prompt_patch_size = 2,
         gt_rate=0,
         split="train",
     ):
@@ -333,6 +336,7 @@ class ExploreDataset(Dataset):
         self.obj_not_found_indices = set({})
         self.too_many_objects_indices = set({})
         self.too_long_prompts_indices = set({})
+        self.img_prompt_not_found_indices = set({})
         self.answer_obj_filtered_indices = set({})
         self.bounds = (-7, 7)
         self.num_bins = 128
@@ -516,6 +520,11 @@ class ExploreDataset(Dataset):
                 self.augmented_questions, 
                 self.image_prompt_visual_feature_size, 
                 self.image_prompt_patch_size)
+        if question_text is None:
+            # the image prompt feature is not correctly loaded
+            self.img_prompt_not_found_indices.add(idx)
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
         text = question_text
         # add features for the image prompt
         multi_src_features.append(question_feature)
@@ -956,13 +965,13 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 880
+            if int(self.episodes[i]["scene"].split("-")[0]) > 700
             and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) < 800
+            if int(self.episodes[i]["scene"].split("-")[0]) < 700
         ]
         train_index, test_index = [], []
         for i in self.episode2step.keys():

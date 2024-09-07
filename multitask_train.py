@@ -339,7 +339,8 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
         #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
         help="exploration path",
     )
@@ -386,8 +387,8 @@ def main():
     parser.add_argument("--gt_rate", type=float, default=0)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question",action="store_true",default=False)
-    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=3)
-    parser.add_argument("--image_prompt_patch_size", type=int, default=1)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
+    parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     # TODO: include deepspeed arguments here
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()

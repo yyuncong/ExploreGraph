@@ -98,17 +98,17 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         logging.info(
             tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
         )
-        logging.info(tokenizer.decode(labels[0][labels[0] != -100]))
+        #logging.info(tokenizer.decode(labels[0][labels[0] != -100]))
 
         # optimizer.zero_grad()
 
-        # outputs = llava_model(
-        #     input_ids=input_ids,
-        #     attention_mask=attention_mask,
-        #     labels=labels,
-        #     feature_dict=feature_dict,
-        #     output_hidden_states=True,
-        # )
+        outputs = llava_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels,
+            feature_dict=feature_dict,
+            output_hidden_states=True,
+        )
         # selection_loss = outputs.loss
         # combined_loss = selection_loss
         # Jiachen TODO: get the extra filter outputs with everything you added
@@ -119,11 +119,27 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_input_ids = sample.filter_input_ids.to("cpu")
             filter_attention_mask = sample.filter_attention_mask.to("cpu")
             filter_labels = filter_input_ids.clone()
+            filter_feature_dict = EasyDict(
+                scene_feature=sample.filter_feature.to("cpu"),
+                scene_insert_loc=sample.filter_insert_loc,
+                scene_length=sample.filter_feature_length,
+            )
+            # there are no features should be included
+            if filter_feature_dict.scene_feature.shape[1] == 0:
+                filter_feature_dict = None
             # choose the first answer as the separator
             filter_answer_indices = torch.where(filter_labels == 22550)[1]
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
+            
+            filter_outputs = llava_model(
+                input_ids=filter_input_ids,
+                attention_mask=filter_attention_mask,
+                labels=filter_labels,
+                feature_dict=filter_feature_dict,
+                output_hidden_states=True,
+            )
 
             # test output
             # print(
@@ -142,7 +158,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                     filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
                 )
             )
-            logging.info(tokenizer.decode(filter_labels[0][filter_labels[0] != -100]))
+            #logging.info(tokenizer.decode(filter_labels[0][filter_labels[0] != -100]))
 
             # filter_outputs = llava_model(
             #     input_ids=filter_input_ids,

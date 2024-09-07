@@ -4,7 +4,7 @@
 #SBATCH --error=log/dcs_scannet-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=12
+#SBATCH --nodes=6
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs

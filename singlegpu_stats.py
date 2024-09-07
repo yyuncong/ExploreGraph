@@ -279,7 +279,9 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
@@ -338,6 +340,8 @@ def main():
         visual_feature_size=args.visual_feature_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
+        image_prompt_visual_feature_size=args.image_prompt_visual_feature_size,
+        image_prompt_patch_size=args.image_prompt_patch_size,
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
