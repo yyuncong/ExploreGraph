@@ -253,7 +253,8 @@ def format_questions(
             #print(f"raw question {raw_question} phrased question {phrased_question}")
         text += f"Question: {question}\n"
     elif metadata["task_type"] == "image":
-        text += "Question: Could you find the object presented in the following image\n"
+        #text += "Question: Could you find the object presented in the following image\n"
+        text += "Question: Could you find the object captured in the following image?\n"
         try:
             image_feature = torch.load(metadata["image_path"].replace(".png","_full.pt"), map_location="cpu")
         except:
@@ -271,7 +272,7 @@ def format_questions(
             text += "<scene>"
         text += "?/\n"
     elif metadata["task_type"] == "object":
-        text += f"Question: Could you find a {metadata['target_obj_class']}?\n"
+        text += f"Question: Where is the {metadata['target_obj_class']}?\n"
     return text, question_feature
         
         
@@ -304,7 +305,7 @@ class ExploreDataset(Dataset):
     ):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
         #self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
-        self.ranking_path = "prefiltering/goatbench_sample.json"
+        self.ranking_path = "prefiltering/selected_candidates_goatbench.json"
         #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
         self.explore_dir = os.path.join(exploration_path, "exploration_data_goatbench")
@@ -513,8 +514,11 @@ class ExploreDataset(Dataset):
         if prefilter_key in self.candidate_rankings.keys():
             ranking = self.candidate_rankings[prefilter_key]
         else:
-            # randomly assign a ranking
-            ranking = list(set([obj["class_name"] for obj in obj_json]))
+            # skip sample without groundtruth ranking
+            # ranking = list(set([obj["class_name"] for obj in obj_json])
+            index = np.random.choice(self.indices)
+            return self.__getitem__(index)
+            
         question_text,question_feature = format_questions(episode, 
                 False, self.augment_question, 
                 self.augmented_questions, 
@@ -965,13 +969,13 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 700
+            if int(self.episodes[i]["scene"].split("-")[0]) > 749
             and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) < 700
+            if int(self.episodes[i]["scene"].split("-")[0]) < 749
         ]
         train_index, test_index = [], []
         for i in self.episode2step.keys():

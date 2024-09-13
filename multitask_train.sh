@@ -4,7 +4,7 @@
 #SBATCH --error=log/dcs_scannet-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=6
+#SBATCH --nodes=24
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs
@@ -76,10 +76,10 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 multitask_train.py \
---folder ckpts/goatbench_sample \
+--folder ckpts/goatbench \
 --random_permute \
 --lr=4e-6 \
---num_epochs=8 \
+--num_epochs=6 \
 --batch_size=1 \
 --patch_size=1 \
 --visual_feature_size=3 \
@@ -89,9 +89,11 @@ $DEEPSPEED_ARGS \
 --lora_enable \
 --augment_question \
 --num_egocentric_views=5 \
+--image_prompt_visual_feature_size 24 \
+--image_prompt_patch_size 2 \
 --prefiltering \
 --filter_coeff=0.3 \
---top_k_categories=10 \
+--top_k_categories=5 \
 
 
 # automically evaluate after training current model

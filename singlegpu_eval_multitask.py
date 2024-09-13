@@ -262,7 +262,8 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
@@ -303,6 +304,8 @@ def main():
     parser.add_argument("--gt_rate", type=float, default=0)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question", action="store_true", default=False)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
+    parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
@@ -341,6 +344,8 @@ def main():
         visual_feature_size=args.visual_feature_size,
         target_use_gt=False,
         augment_question=False, # disable question augmentation in evaluation phase
+        image_prompt_patch_size = args.image_prompt_patch_size,
+        image_prompt_visual_feature_size = args.image_prompt_visual_feature_size,
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
@@ -398,6 +403,8 @@ def main():
         saving_folder += "_targt"
     if args.augment_question:
         saving_folder += "_qaug"
+    img_prompt_size = args.image_prompt_visual_feature_size//args.image_prompt_patch_size
+    saving_folder += f"_img{img_prompt_size}"
     print(saving_folder)
     args.folder = saving_folder
     

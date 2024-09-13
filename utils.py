@@ -2,6 +2,7 @@ import shutil
 import os
 import json
 from tqdm import tqdm
+import random
 
 def merge_datasets(merge_from, merge_to):
     questions_from = os.listdir(merge_from)
@@ -55,7 +56,22 @@ def check_sene_set(src):
     print(sorted(list(scene_set)))
     print(f"valid file num: {valid_file_num}")
         
-
+def collect_one_example(src):
+    
+    #sample_id = random.choice(os.listdir(src))
+    sample_id = sorted(os.listdir(src))[0]
+    print(sample_id)
+    # collect metadata
+    sample_path = os.path.join(src,sample_id)
+    with open(os.path.join(sample_path,'metadata.json'),"r") as f:
+        metadata = json.load(f)
+    print(sorted(os.listdir(sample_path)))
+    step_path = os.path.join(sample_path, '0000.json')
+    with open(step_path, "r") as f:
+        step = json.load(f)
+    print(step)
+        
+    
 if __name__ == "__main__":
     '''
     exploration_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
@@ -67,5 +83,10 @@ if __name__ == "__main__":
     #obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
     #map_path = "bbox_mapping/matterport_category_map.json"
     #checkclass_set(obj_bbox_dir, map_path)
+    #exploration_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
+    #check_sene_set(os.path.join(exploration_path,'exploration_data_goatbench'))
     exploration_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
-    check_sene_set(os.path.join(exploration_path,'exploration_data_goatbench'))
+    exploration_data = os.path.join(exploration_path, "exploration_data")
+    collect_one_example(exploration_data)
+    
+    
