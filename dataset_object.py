@@ -116,12 +116,18 @@ def show_sample(sample):
             print(v.shape)
 
 
-def prepare_egocentric_view(egocentric_path, visual_feature_size, patch_size):
-    #text = "Followings are the egocentric views(in left, right and forward directions):\n "
+def prepare_egocentric_view(egocentric_path, num_egocentric_views
+        visual_feature_size, patch_size):
     text = "Followings are the egocentric views:\n "
     num_tokens = (visual_feature_size // patch_size) ** 2
     egocentric_features = []
-    for i, view in egocentric_path.items():
+    # TODO: only pick the last egocentric view if num_egocentric_views == 1
+    egocentric_path = sorted(list(egocentric_path.items()), key = lambda x: x[0])
+    print(egocentric_paths)
+    if num_egocentric_views == 1:
+        egocentric_path = [egocentric_path[-1]]
+        
+    for i, view in egocentric_path:
         egocentric_feature = torch.load(view, map_location="cpu")
         egocentric_feature = merge_patches(
             egocentric_feature.view(visual_feature_size, visual_feature_size, -1),
@@ -150,7 +156,7 @@ def prepare_action_memory(memory_path):
 def prepare_frontier(feature_path, frontier_info, visual_feature_size, patch_size):
     # print("frontier after shuffle", [info['rgb_id'] for info in frontier_info])
     try:
-        text = f"Below are all the frontiers that we can explore.\n"
+        text = f"Below are all the frontiers that we can explore:\n"
         num_tokens = (visual_feature_size // patch_size) ** 2
         if len(frontier_info) > 0:
             frontier_features = []
@@ -231,52 +237,6 @@ def merge_patches(patches, patch_size):
     return patches
 
 
-def format_questions(
-    metadata, 
-    augment_prompt = False,
-    augment_question = False,
-    augmented_questions = None,
-    image_prompt_visual_feature_size = 12,
-    image_prompt_patch_size = 1
-    ):
-    
-    text,question_feature = '', None
-    if augment_prompt:
-        text += "Task: You are an agent in an indoor scene tasked with answering quesions by observing the surroundings and exploring the environment. To answer the question, you are required to choose either a snapshot or a frontier based on the egocentric views of your surroundings.\n\
-        Definitions:\n\
-        Snapshot: A focused observation of several objects. Choosing a snapshot means that you are selecting the observed objects in the snapshot as the target objects to help answer the question.\n\
-        Frontier: An unexplored region that could potentially lead to new information for answering the question. Selecting a frontier means that you will further explore that direction.\n"
-    if "task_type" not in metadata.keys() or metadata["task_type"] == "description":
-        question = metadata["question"]
-        if augment_question and question in augmented_questions.keys():
-            question = np.random.choice(augmented_questions[question])
-            #print(f"raw question {raw_question} phrased question {phrased_question}")
-        text += f"Question: {question}\n"
-    elif metadata["task_type"] == "image":
-        #text += "Question: Could you find the object presented in the following image\n"
-        text += "Question: Could you find the object captured in the following image?"
-        try:
-            image_feature = torch.load(metadata["image_path"].replace(".png","_full.pt"), map_location="cpu")
-        except:
-            return None,None
-        num_tokens = (image_prompt_visual_feature_size // image_prompt_patch_size) ** 2
-        question_feature = merge_patches(
-            image_feature.view(
-                image_prompt_visual_feature_size,
-                image_prompt_visual_feature_size,
-                -1,
-            ),
-            image_prompt_patch_size,
-        )
-        for _ in range(num_tokens):
-            text += "<scene>"
-    elif metadata["task_type"] == "object":
-        text += f"Question: Where is the {metadata['target_obj_class']}?"
-    text += "\n"
-    return text, question_feature
-        
-        
-
 class ExploreDataset(Dataset):
     def __init__(
         self,
@@ -291,25 +251,20 @@ class ExploreDataset(Dataset):
         prefiltering=False,
         random_permute=False,
         add_positional_encodings=False,
-        mix_gt=False,
         augment_question=False,
-        target_use_gt=False,
         top_k_categories=5,
         num_egocentric_views=5,
         patch_size=3,
         visual_feature_size=6,
-        image_prompt_visual_feature_size = 24,
-        image_prompt_patch_size = 2,
-        gt_rate=0,
+        egocentric_patch_size=2,
+        egocentric_visual_size=24,
         split="train",
     ):
-        self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
-        #self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
-        self.ranking_path = "prefiltering/selected_candidates_goatbench.json"
+        self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_goatbench")
-        self.category_map_path = "bbox_mapping/mpcat40_full_map.json"
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_finetuned")
+        #self.explore_dir = os.path.join(exploration_path, "exploration_data")
         self.augmented_questions_path = "question_augment/augmented_generated_questions.json"
         with open(self.category_map_path, "r") as f:
             self.category_map = json.load(f)
@@ -322,11 +277,10 @@ class ExploreDataset(Dataset):
         self.random_permute = random_permute
         self.augment_question = augment_question
         self.num_egocentric_views = num_egocentric_views
+        self.egocentric_patch_size = egocentric_patch_size
+        self.egocentric_visual_size = egocentric_visual_size
+        self.egocentric
         self.top_k_categories = top_k_categories
-        self.mix_gt = mix_gt
-        self.gt_rate = gt_rate
-        self.target_use_gt = target_use_gt
-        
 
         self.max_length = max_length
         self.split = split
@@ -337,7 +291,6 @@ class ExploreDataset(Dataset):
         self.obj_not_found_indices = set({})
         self.too_many_objects_indices = set({})
         self.too_long_prompts_indices = set({})
-        self.img_prompt_not_found_indices = set({})
         self.answer_obj_filtered_indices = set({})
         self.bounds = (-7, 7)
         self.num_bins = 128
@@ -351,9 +304,6 @@ class ExploreDataset(Dataset):
         # each object is represented by 4 visual tokens(by default)
         self.num_visual_tokens = (visual_feature_size // self.patch_size) ** 2
         self.visual_feature_size = visual_feature_size
-        self.image_prompt_visual_feature_size = image_prompt_visual_feature_size
-        self.image_prompt_patch_size = image_prompt_patch_size
-        
 
     def load_step(self, step_path):
         try:
@@ -389,16 +339,17 @@ class ExploreDataset(Dataset):
             rgb_id = frontier["rgb_id"]
             feature = os.path.join(frontier_folder, rgb_id.replace(".png", "_full.pt"))
             stepdata["frontier_features"][rgb_id] = feature
-        stepdata["snapshot_features"] = {}
-        stepdata["snapshot_objects"] = {}
-        snapshot_folder = os.path.join(epi_path, "object_features")
-        for snapshot in stepdata["snapshots"]:
-            rgb_id = snapshot["img_id"]
+        stepdata["object_features"] = {}
+        #stepdata["object_ids"] = {}
+        # TODO: modify it to object baseline setting
+        object_folder = os.path.join(epi_path, "image_crop")
+        for obj in stepdata["objects"]:
+            rgb_id = obj["img_id"]
             feature = os.path.join(snapshot_folder, rgb_id.replace(".png", "_full.pt"))
-            stepdata["snapshot_features"][rgb_id] = feature
-            object_ids = snapshot["obj_ids"]
+            stepdata["object_features"][rgb_id] = feature
+            #object_id = snapshot["obj_id"]
             # use image_id to index the snapshot
-            stepdata["snapshot_objects"][rgb_id] = object_ids
+            #stepdata["object_ids"][rgb_id] = object_ids
 
         if stepdata["previous_choice"] is not None:
             stepdata["previous_choice"] = os.path.join(
@@ -407,12 +358,13 @@ class ExploreDataset(Dataset):
             )
 
         stepdata["egocentric_features"] = {}
-        for view_idx in range(self.num_egocentric_views):
-            egocentric_view_folder = os.path.join(epi_path, f"object_features")
-            featrue = os.path.join(
-                egocentric_view_folder, f"{step}-view_{view_idx}_full.pt"
-            )
-            stepdata["egocentric_features"][view_idx] = featrue
+        # TODO: load all egocentric views for current step
+        egocentric_view_folder = os.path.join(epi_path, f"egocentric_views")
+        step_prefix, step_suffix = f"{step}--view_","_full.pt"
+        egocentric_files = sorted([f for f in os.listdir(egocentric_view_folder) if (step_prefix in f and step_suffix in f)])
+        for f in egocentric_files:
+            view_idx = int(f.split('_')[1])
+            stepdata["egocentric_features"][view_idx] = os.path.join(egocentric_view_folder,f)
         return stepdata
 
     def load_data(self):
@@ -483,8 +435,11 @@ class ExploreDataset(Dataset):
         episode = self.episodes[episode_id]
 
         shuffle = self.random_permute and (self.split == "train")
+        ranking = self.candidate_rankings[episode["question"] + "_" + episode["scene"]]
         multi_src_features = []
+
         try:
+            
             with open(self.obj_json_map[episode["scene"]]) as f:
                 obj_json = json.load(f)
         except Exception as e:
@@ -507,37 +462,26 @@ class ExploreDataset(Dataset):
             print(step_path)
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
-        # format prefiltering
-        prefilter_key = episode["question"] + "_" + episode["scene"]
-        if "task_type" in episode.keys():
-            prefilter_key += "_" + episode["task_type"]
-        if prefilter_key in self.candidate_rankings.keys():
-            ranking = self.candidate_rankings[prefilter_key]
-        else:
-            # skip sample without groundtruth ranking
-            # ranking = list(set([obj["class_name"] for obj in obj_json])
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
             
-        question_text,question_feature = format_questions(episode, 
-                False, self.augment_question, 
-                self.augmented_questions, 
-                self.image_prompt_visual_feature_size, 
-                self.image_prompt_patch_size)
-        if question_text is None:
-            # the image prompt feature is not correctly loaded
-            self.img_prompt_not_found_indices.add(idx)
-            index = np.random.choice(self.indices)
-            return self.__getitem__(index)
-        text = question_text
-        # add features for the image prompt
-        multi_src_features.append(question_feature)
+
+        if self.augment_question:
+            raw_question = episode["question"]
+            if episode["question"] in self.augmented_questions.keys():
+                phrased_question = np.random.choice(self.augmented_questions[episode["question"]])
+                #print(f"raw question {raw_question} phrased question {phrased_question}")
+            else:
+                phrased_question = raw_question
+            text = f"Question: {phrased_question}\n"
+        else:
+            text = f"Question: {episode['question']}\n"
+
         if self.egocentric_views:
             try:
                 egocentric_text, egocentric_features = prepare_egocentric_view(
                     step["egocentric_features"],
-                    self.visual_feature_size,
-                    self.patch_size,
+                    self.num_egocentric_views
+                    self.egocentric_visual_size,
+                    self.egocentric_patch_size,
                 )
             except:
                 index = np.random.choice(self.indices)
@@ -560,7 +504,7 @@ class ExploreDataset(Dataset):
                 )
             multi_src_features.append(egocentric_features)
 
-        text += f"Select the frontier/snapshot that would help find the answer of the question.\n"
+        text += f"Select the frontier/object that would help finding the answer of the question.\n"
 
         if self.action_memory:
             try:
@@ -576,76 +520,42 @@ class ExploreDataset(Dataset):
 
         # replace scene graph in each steps with scene feature
         prediction = np.array(step["prediction"])
-        snapshot_features, keep_indices = [], []
-        snapshot_classes = []
-        snapshot_positions = []
-        snapshot_index = 0
+        object_features, keep_indices = [], []
+        object_classes = []
+        object_positions = []
+        object_index = 0
 
         # prefiltering TODO
         # use seen objects set to replace class2object
         # class2object = defaultdict(list)
         seen_classes = set()
-        use_gt = (random.random() < self.gt_rate) and self.mix_gt
-        for i, rgb_id in enumerate(step["snapshot_features"].keys()):
+        for i, rgb_id in enumerate(step["object_features"].keys()):
             # No need to filter here (both scene_graph and snapshots objects from the json files)
             try:
                 keep_indices.append(i)
-                # a simple work round for step feature paths
-                # snapshot_feature_path = step["snapshot_features"][rgb_id].split('/')
-                # snapshot_feature_path[-1] = snapshot_feature_path[-1].replace('-','_')
-                # snapshot_feature_path = '/'.join(snapshot_feature_path)
-                snapshot_feature_path = step["snapshot_features"][rgb_id]
-                '''
-                snapshot_feature = torch.load(
-                    step["snapshot_features"][rgb_id], map_location="cpu"
-                )
-                '''
-                snapshot_feature = torch.load(
-                    snapshot_feature_path, map_location="cpu"
+                object_feature_path = step["object_features"][rgb_id]
+                object_feature = torch.load(
+                    object_feature_path, map_location="cpu"
                 )
                 #2*2*dim, 4 visual features to represent 1 snapshot
-                snapshot_feature = merge_patches(
-                    snapshot_feature.view(
+                object_feature = merge_patches(
+                    object_feature.view(
                         self.visual_feature_size, self.visual_feature_size, -1
                     ),
                     self.patch_size,
                 )
                 # update the way naming objects
-                '''
-                if str(target_obj_id) in list(step["snapshot_objects"][rgb_id].keys()):
-                    print('this is right')
-                else:
-                    print(target_obj_id)
-                    print(list(step["snapshot_objects"][rgb_id].keys()))
-                '''
-                if use_gt:
-                    snapshot_class = [
-                        class_name['gt_class']
-                        for sid,class_name in step["snapshot_objects"][rgb_id].items()
-                    ]
-                else:
-                    snapshot_class = [
-                        class_name['gt_class'] if sid == str(target_obj_id) and self.target_use_gt else class_name['recognize_class']
-                        for sid,class_name in step["snapshot_objects"][rgb_id].items()
-                    ]
-                seen_classes.update(snapshot_class)
-                snapshot_classes.append(
-                    # [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
-                    snapshot_class
-                )
-                snapshot_features.append(snapshot_feature)
-                snapshot_positions.append(
-                    torch.mean(
-                        torch.tensor(
-                            [
-                                obj_positions_map[str(sid)]
-                                for sid in step["snapshot_objects"][rgb_id]
-                            ]
-                        ),
-                        dim=0,
+                object_info = step["objects"][i]
+                object_class = object_info["recognize_class"]
+                seen_classes.add(object_class)
+                object_classes.append(object_class)
+                object_features.append(object_feature)
+                object_positions.append(
+                    torch.tensor(
+                        obj_positions_map[str(object_info['obj_id'])]
                     )
                 )
-                snapshot_index += 1
+                object_index += 1
             except Exception as e:
                 # remove current wrong sample?
                 if idx in set(self.indices):
@@ -655,15 +565,15 @@ class ExploreDataset(Dataset):
                 index = np.random.choice(self.indices)
                 return self.__getitem__(index)
         if self.add_positional_encodings:
-            snapshot_features = [
+            object_features = [
                 sum_positional_encodings(
-                    snapshot_features[i].unsqueeze(0),
-                    snapshot_positions[i],
+                    object_features[i].unsqueeze(0),
+                    object_positions[i],
                     self.positional_encoding,
                     num_bins=self.num_bins,
                     coord_range=self.bounds,
                 ).squeeze(0)
-                for i in range(len(snapshot_features))
+                for i in range(len(object_features))
             ]
 
         # Data Problem
@@ -696,65 +606,52 @@ class ExploreDataset(Dataset):
             print("raw snapshot classes", snapshot_classes)
             """
             ranking_set = set(ranking)
-            snap_indices = [
-                snap_idx
-                for snap_idx in range(snapshot_index)
-                if len(set(snapshot_classes[snap_idx]) & ranking_set) > 0
+            
+            object_indices = [
+                obj_idx for obj_idx in range(object_index)
+                if object_classes[obj_idx] in ranking_set
             ]
-            keep_indices = [keep_indices[snap_idx] for snap_idx in snap_indices]
-            snapshot_classes = [snapshot_classes[snap_idx] for snap_idx in snap_indices]
+            keep_indices = [keep_indices[obj_idx] for obj_idx in object_indices]
+            object_classes = [object_classes[obj_idx] for obj_idx in object_indices]
             # further filter out the useless objects (objects not in ranking) in each snapshot
             # print('before inner snapshot filtering', snapshot_classes)
-            snapshot_classes = [
-                [scls for scls in list(dict.fromkeys(snap_cls)) if scls in ranking_set]
-                for snap_cls in snapshot_classes
+            object_features = [
+                object_features[obj_idx] for obj_idx in object_indices
             ]
-            snapshot_features = [
-                snapshot_features[snap_idx] for snap_idx in snap_indices
-            ]
-            snapshot_index = len(keep_indices)
+            object_index = len(keep_indices)
         if shuffle:
             # shuffle the index if random_permute is True otherwise keep the original order
-            random_snapshot_index = list(range(snapshot_index))
-            np.random.shuffle(random_snapshot_index)
-            keep_indices = [keep_indices[r_idx] for r_idx in random_snapshot_index]
-            snapshot_classes = [
-                snapshot_classes[r_idx] for r_idx in random_snapshot_index
+            random_object_index = list(range(object_index))
+            np.random.shuffle(random_object_index)
+            keep_indices = [keep_indices[r_idx] for r_idx in random_object_index]
+            object_classes = [
+                object_classes[r_idx] for r_idx in random_object_index
             ]
-            snapshot_features = [
-                snapshot_features[r_idx] for r_idx in random_snapshot_index
+            object_features = [
+                object_features[r_idx] for r_idx in random_object_index
             ]
         
-        #text += "These are the snapshots (followed with contained object classes).\n"
-        text 
-        for i, class_names in enumerate(snapshot_classes):
-            text += f"snapshot {i} "
+        text += "These are the objects:\n"
+        for i, class_name in enumerate(object_classes):
+            text += f"object {i} {class_name}"
             #text += f"{i} "
+            '''
             class_names_set = set(class_names)
             class_names_list = list(class_names_set)
             sorted_class_names = sorted(class_names_list)
-            '''
-            if random.random() < self.mapping_rate:
-                for class_name in sorted_class_names:
-                    if self.map_category and class_name in self.category_map.keys():
-                        #print(f"remap category {class_name} to {self.category_map[class_name]}")
-                        text += f"{self.category_map[class_name]}, "
-                    else:
-                        text += f"{class_name}, "
-            else:
-            '''
             for class_name in sorted_class_names:
                 text += f"{class_name}, "
+            '''
             for _ in range(self.num_visual_tokens):
                 text += "<scene>"
             text += " / "
-        if snapshot_index == 0:
-            text += f"No snapshot available "
+        if object_index == 0:
+            text += f"No object available "
             # construct zero scene feature if all snapshots are missed
-            snapshot_features = None
+            object_features = None
         else:
-            snapshot_features = torch.cat(snapshot_features, dim=0)
-            multi_src_features.append(snapshot_features)
+            object_features = torch.cat(object_features, dim=0)
+            multi_src_features.append(object_features)
 
         text += "\n"
 
@@ -785,7 +682,7 @@ class ExploreDataset(Dataset):
         text += frontier_text
         multi_src_features.append(frontier_features)
         # prefiltering TODO: move the first assertion here
-        assert prediction.shape[0] == len(step["snapshot_features"]) + len(
+        assert prediction.shape[0] == len(step["object_features"]) + len(
             step["frontiers"]
         )
         # print("frontier prediction before shuffle", prediction[-len(step["frontiers"]):])
@@ -793,7 +690,7 @@ class ExploreDataset(Dataset):
             (
                 prediction[keep_indices],
                 prediction[
-                    [idx + len(step["snapshot_features"]) for idx in frontier_index]
+                    [idx + len(step["object_features"]) for idx in frontier_index]
                 ],
             )
         )
@@ -809,7 +706,7 @@ class ExploreDataset(Dataset):
 
         prediction_index = np.where(prediction == 1.0)[0][0]
         if prediction_index < snapshot_index:
-            answer = f"snapshot {prediction_index}"
+            answer = f"object {prediction_index}"
         else:
             answer = f"frontier {prediction_index - snapshot_index}"
 
@@ -817,7 +714,7 @@ class ExploreDataset(Dataset):
         text += answer + self.tokenizer.eos_token
 
         # randomly choose another item
-        if snapshot_features is None and frontier_features is None:
+        if object_features is None and frontier_features is None:
             index = np.random.choice(self.indices)
             return self.__getitem__(index)
 
@@ -886,22 +783,13 @@ class ExploreDataset(Dataset):
                 input_dict.filter_length,
                 input_dict.filter_attention_mask,
             ) = prepare_prefiltering_input(
-                question_text,
+                episode["question"],
                 self.tokenizer,
                 classes,
                 ranking,
                 self.max_length,
                 self.top_k_categories,
             )
-            # prepare image prompt feature for prefiltering
-            if question_feature is not None:
-                input_dict.filter_feature = question_feature
-                input_dict.filter_insert_loc = (
-                    (input_dict.filter_input_ids == self.scene_token_id).nonzero()[:, 1].reshape(-1)
-                )
-            else:
-                input_dict.filter_feature = torch.empty((0,1024))
-                input_dict.filter_insert_loc = torch.empty((0,))
         return input_dict
 
     def collate_wrapper(self, batch):
@@ -918,16 +806,6 @@ class ExploreDataset(Dataset):
 
         if self.prefiltering:
             max_filter_length = max(b.filter_length for b in batch) + 1
-            max_filter_feature_length = max(b.filter_feature.shape[0] for b in batch)
-            
-            # align filter feature 
-            filter_feature = torch.zeros((len(batch), max_filter_feature_length, 1024))
-            filter_insert_loc = torch.zeros((len(batch), max_filter_feature_length))
-            
-            for j, b in enumerate(batch):
-                filter_feature[j, : b.filter_feature.shape[0]] = b.filter_feature
-                filter_insert_loc[j, : b.filter_insert_loc.shape[0]] = b.filter_insert_loc
-                
             return EasyDict(
                 input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
                 attention_mask=torch.cat([b.attention_mask for b in batch])[
@@ -945,12 +823,6 @@ class ExploreDataset(Dataset):
                 filter_attention_mask=torch.cat(
                     [b.filter_attention_mask for b in batch]
                 )[..., :max_filter_length],
-                filter_feature=filter_feature,
-                filter_insert_loc=filter_insert_loc.to(torch.long),
-                filter_feature_length=torch.tensor([b.filter_feature.shape[0] for b in batch]),
-                max_filter_feature_length=torch.tensor(
-                    [b.scene_feature.shape[0] for b in batch]
-                )
             )
         return EasyDict(
             input_ids=torch.cat([b.input_ids for b in batch])[..., :max_length],
@@ -969,13 +841,13 @@ class ExploreDataset(Dataset):
         test_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) > 749
+            if int(self.episodes[i]["scene"].split("-")[0]) > 880
             and int(self.episodes[i]["scene"].split("-")[0]) < 900
         ]
         train_episode = [
             i
             for i in range(len(self.episodes))
-            if int(self.episodes[i]["scene"].split("-")[0]) < 749
+            if int(self.episodes[i]["scene"].split("-")[0]) < 800
         ]
         train_index, test_index = [], []
         for i in self.episode2step.keys():
