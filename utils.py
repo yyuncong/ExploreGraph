@@ -1,7 +1,8 @@
 import shutil
 import os
 import json
-
+from tqdm import tqdm
+import random
 
 def merge_datasets(merge_from, merge_to):
     questions_from = os.listdir(merge_from)
@@ -39,9 +40,38 @@ def checkclass_set(obj_bbox_dir, map_path):
     print(len(obj_class_set))
     print(len(class_set))
     print(len(obj_class_set&class_set))
-              
-        
 
+def check_sene_set(src):
+    scene_set = set()
+    valid_file_num = 0
+    for subdir in tqdm(os.listdir(src)):
+        try:
+            with open(os.path.join(src,subdir,'metadata.json'),"r") as f:
+                metadata = json.load(f)
+        except:
+            continue
+        scene = metadata["scene"]
+        scene_set.add(scene)
+        valid_file_num += 1
+    print(sorted(list(scene_set)))
+    print(f"valid file num: {valid_file_num}")
+        
+def collect_one_example(src):
+    
+    #sample_id = random.choice(os.listdir(src))
+    sample_id = sorted(os.listdir(src))[0]
+    print(sample_id)
+    # collect metadata
+    sample_path = os.path.join(src,sample_id)
+    with open(os.path.join(sample_path,'metadata.json'),"r") as f:
+        metadata = json.load(f)
+    print(sorted(os.listdir(sample_path)))
+    step_path = os.path.join(sample_path, '0000.json')
+    with open(step_path, "r") as f:
+        step = json.load(f)
+    print(step)
+        
+    
 if __name__ == "__main__":
     '''
     exploration_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
@@ -50,6 +80,13 @@ if __name__ == "__main__":
         os.path.join(exploration_path,'exploration_data_2.5_best_fixed')
     )
     '''
-    obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
-    map_path = "bbox_mapping/matterport_category_map.json"
-    checkclass_set(obj_bbox_dir, map_path)
+    #obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
+    #map_path = "bbox_mapping/matterport_category_map.json"
+    #checkclass_set(obj_bbox_dir, map_path)
+    #exploration_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
+    #check_sene_set(os.path.join(exploration_path,'exploration_data_goatbench'))
+    exploration_path = "/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/"
+    exploration_data = os.path.join(exploration_path, "exploration_data")
+    collect_one_example(exploration_data)
+    
+    

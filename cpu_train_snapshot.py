@@ -8,7 +8,7 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset_snapshot_tokens_new import ExploreDataset
+from dataset_multitask import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -98,17 +98,17 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         logging.info(
             tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
         )
-        logging.info(tokenizer.decode(labels[0][labels[0] != -100]))
+        #logging.info(tokenizer.decode(labels[0][labels[0] != -100]))
 
         # optimizer.zero_grad()
 
-        # outputs = llava_model(
-        #     input_ids=input_ids,
-        #     attention_mask=attention_mask,
-        #     labels=labels,
-        #     feature_dict=feature_dict,
-        #     output_hidden_states=True,
-        # )
+        outputs = llava_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels,
+            feature_dict=feature_dict,
+            output_hidden_states=True,
+        )
         # selection_loss = outputs.loss
         # combined_loss = selection_loss
         # Jiachen TODO: get the extra filter outputs with everything you added
@@ -119,11 +119,27 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_input_ids = sample.filter_input_ids.to("cpu")
             filter_attention_mask = sample.filter_attention_mask.to("cpu")
             filter_labels = filter_input_ids.clone()
+            filter_feature_dict = EasyDict(
+                scene_feature=sample.filter_feature.to("cpu"),
+                scene_insert_loc=sample.filter_insert_loc,
+                scene_length=sample.filter_feature_length,
+            )
+            # there are no features should be included
+            if filter_feature_dict.scene_feature.shape[1] == 0:
+                filter_feature_dict = None
             # choose the first answer as the separator
             filter_answer_indices = torch.where(filter_labels == 22550)[1]
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
+            
+            filter_outputs = llava_model(
+                input_ids=filter_input_ids,
+                attention_mask=filter_attention_mask,
+                labels=filter_labels,
+                feature_dict=filter_feature_dict,
+                output_hidden_states=True,
+            )
 
             # test output
             # print(
@@ -142,7 +158,7 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                     filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
                 )
             )
-            logging.info(tokenizer.decode(filter_labels[0][filter_labels[0] != -100]))
+            #logging.info(tokenizer.decode(filter_labels[0][filter_labels[0] != -100]))
 
             # filter_outputs = llava_model(
             #     input_ids=filter_input_ids,
@@ -270,6 +286,7 @@ def main():
     parser.add_argument(
         "--exploration_path",
         default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
@@ -309,6 +326,8 @@ def main():
     parser.add_argument("--gt_rate", type=float, default=0.5)
     parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question",action="store_true",default=False)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
+    parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -356,11 +375,15 @@ def main():
         gt_rate=args.gt_rate,
         target_use_gt=args.target_use_gt,
         augment_question=args.augment_question,
-        visual_feature_size=args.visual_feature_size
+        visual_feature_size=args.visual_feature_size,
+        image_prompt_visual_feature_size=args.image_prompt_visual_feature_size,
+        image_prompt_patch_size=args.image_prompt_patch_size
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
     train_dataset = Subset(dataset, train_index)
     val_dataset = Subset(dataset, test_index)
+    print(len(train_index))
+    print(len(test_index))
     dataloader = DataLoader(
         train_dataset,
         batch_size=2,
@@ -399,11 +422,11 @@ def main():
         print("Start training epoch %d" % epoch)
 
         # Jiachen TODO: update train_one_epoch for your feature
-        dataset.split = "train"
+        dataset.split = "val"
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
-        dataset.split = "val"
+        #dataset.split = "val"
         print("evaluating")
         # Jiachen TODO: update eval for your feature
         # eval(val_dataloader, model, tokenizer, args)

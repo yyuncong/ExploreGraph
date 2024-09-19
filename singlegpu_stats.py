@@ -9,7 +9,8 @@ import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 #from dataset_snapshot_tokens import ExploreDataset
-from dataset_snapshot_tokens_new import ExploreDataset
+#from dataset_snapshot_tokens_new import ExploreDataset
+from dataset_multitask import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
@@ -278,7 +279,9 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test",
+        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
@@ -300,6 +303,8 @@ def main():
     parser.add_argument("--top_k_categories", type=int, default=5)
     parser.add_argument("--patch_size", type=int, default = 1)
     parser.add_argument("--visual_feature_size", type = int, default = 3)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
+    parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     parser.add_argument("--max_length", type = int, default = 2048)
     args = parser.parse_args()
     # args.local_rank, args.rank, args.world_size = world_info_from_env()
@@ -335,6 +340,8 @@ def main():
         visual_feature_size=args.visual_feature_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
+        image_prompt_visual_feature_size=args.image_prompt_visual_feature_size,
+        image_prompt_patch_size=args.image_prompt_patch_size,
         split="val",
     )
     # train_dataset, val_dataset = dataset, dataset
@@ -347,6 +354,7 @@ def main():
     # train_index, test_index = dataset.split_index(test_ratio=0.999)
     # train_dataset = Subset(train_total_dataset, train_index)
     val_dataset = Subset(val_total_dataset, test_index)
+    #val_dataset =
     # train_dataloader = DataLoader(
     #     train_dataset,
     #     batch_size=1,

@@ -22,13 +22,24 @@
 # --patch_size=1 \
 # --visual_feature_size=4
 
-max_length=4096
+max_length=4508
 
 echo "max_length=$max_length"
 python singlegpu_stats.py \
 --max_length=$max_length \
 --patch_size=1 \
 --visual_feature_size=3 \
+--image_prompt_patch_size=2 \
+
+
+max_length=4508
+
+echo "max_length=$max_length"
+python singlegpu_stats.py \
+--max_length=$max_length \
+--patch_size=1 \
+--visual_feature_size=3 \
+--image_prompt_patch_size=4 \
 
 
 

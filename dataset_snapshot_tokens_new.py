@@ -258,7 +258,8 @@ class ExploreDataset(Dataset):
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_finetuned")
+        #self.explore_dir = os.path.join(exploration_path, "exploration_data")
         self.category_map_path = "bbox_mapping/mpcat40_full_map.json"
         self.augmented_questions_path = "question_augment/augmented_generated_questions.json"
         with open(self.category_map_path, "r") as f:
