@@ -8,12 +8,14 @@ import random
 import functools
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from dataset import ExploreDataset
+from dataset_object import ExploreDataset
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader, Subset
 from easydict import EasyDict
 from accelerate import load_checkpoint_and_dispatch
+import deepspeed
+from peft import LoraConfig, get_peft_model
 
 import numpy as np
 import torch
@@ -45,15 +47,21 @@ import warnings
 
 warnings.filterwarnings("ignore")
 import logging
+import json
 
+logging_path = "log.log"
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(message)s",
-    datefmt="%m/%d %I:%M:%S",
+    format="%(message)s",
+    handlers=[
+        logging.FileHandler(logging_path, mode="w"),
+        logging.StreamHandler(),
+    ],
 )
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from tqdm import tqdm
 import torch.nn.functional as F
+from loader import *
 
 
 def set_seed(seed):
@@ -61,69 +69,6 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-def find_all_linear_names(model):
-    cls = torch.nn.Linear
-    lora_module_names = set()
-    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
-    for name, module in model.named_modules():
-        if any(mm_keyword in name for mm_keyword in multimodal_keywords):
-            continue
-        if isinstance(module, cls):
-            names = name.split('.')
-            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
-
-    if 'lm_head' in lora_module_names: # needed for 16-bit
-        lora_module_names.remove('lm_head')
-    return list(lora_module_names)
-
-def lora_wrapper(model,args):
-    print(type(args))
-    if isinstance(args, dict):
-        lora_config = LoraConfig(
-            r = args['r'],
-            lora_alpha = args['lora_alpha'],
-            target_modules = args['target_modules'],
-            lora_dropout = args['lora_dropout'],
-            bias = args['bias'],
-            task_type = args['task_type']
-        )
-    else:
-        lora_config = LoraConfig(
-            r=args.lora_r,
-            lora_alpha=args.lora_alpha,
-            target_modules=find_all_linear_names(model),
-            lora_dropout=args.lora_dropout,
-            bias=args.lora_bias,
-            task_type = 'CAUSAL_LM'
-        )
-    model = get_peft_model(model, lora_config)
-    return model, lora_config.to_dict()
-
-def load_checkpoint(model, args, name="checkpoint.pt"):
-    checkpoint = torch.load(name, map_location="cpu")
-    # wait until checkpoints in all processes are loaded
-    torch.distributed.barrier()
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT):
-        model.load_state_dict(checkpoint, True)
-    del checkpoint
-    torch.cuda.empty_cache()
-    torch.distributed.barrier()
-
-
-def save_checkpoint(model, folder, epoch, args, name="checkpoint.pt"):
-    try:
-        if not os.path.exists(folder):
-            os.mkdir(folder)
-    except:
-        pass
-    name = os.path.join(folder, "checkpoint_%d.pt" % epoch)
-    save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, save_policy):
-        cpu_state = model.state_dict()
-    if args.rank == 0:
-        torch.save(cpu_state, name)
-    torch.distributed.barrier()
 
 
 def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args):
@@ -146,12 +91,16 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
         labels[labels == tokenizer.pad_token_id] = -100
 
         # Jiachen TODO: check the content of your new prompt by uncommenting the following line
-        """
-        print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
-        print()
-        print(tokenizer.decode(labels[0][labels[0] != -100]))
-        """
-        optimizer.zero_grad()
+
+        # print(tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id]))
+        # print()
+        # print(tokenizer.decode(labels[0][labels[0] != -100]))
+        logging.info(
+            tokenizer.decode(input_ids[0][input_ids[0] != tokenizer.pad_token_id])
+        )
+        #logging.info(tokenizer.decode(labels[0][labels[0] != -100]))
+
+        # optimizer.zero_grad()
 
         outputs = llava_model(
             input_ids=input_ids,
@@ -160,8 +109,8 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             feature_dict=feature_dict,
             output_hidden_states=True,
         )
-        selection_loss = outputs.loss
-        combined_loss = selection_loss
+        # selection_loss = outputs.loss
+        # combined_loss = selection_loss
         # Jiachen TODO: get the extra filter outputs with everything you added
         # and calculate the filter_loss and combine it with the total loss for training
         # Add the values of the two losses to the set_description line
@@ -170,26 +119,24 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
             filter_input_ids = sample.filter_input_ids.to("cpu")
             filter_attention_mask = sample.filter_attention_mask.to("cpu")
             filter_labels = filter_input_ids.clone()
+            '''
+            filter_feature_dict = EasyDict(
+                scene_feature=sample.filter_feature.to("cpu"),
+                scene_insert_loc=sample.filter_insert_loc,
+                scene_length=sample.filter_feature_length,
+            )
+            '''
+            # there are no features should be included
+            '''
+            if filter_feature_dict.scene_feature.shape[1] == 0:
+                filter_feature_dict = None
+            '''
             # choose the first answer as the separator
             filter_answer_indices = torch.where(filter_labels == 22550)[1]
             for j, answer_idx in enumerate(filter_answer_indices):
                 filter_labels[j, : answer_idx + 2] = -100
             filter_labels[filter_labels == tokenizer.pad_token_id] = -100
-
-            # test output
-            """
-            print(
-                tokenizer.decode(
-                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
-                )
-            )
-            print()
-            print(
-                tokenizer.decode(
-                    filter_labels[0][filter_labels[0] != -100]
-                )
-            )
-            """
+            '''
             filter_outputs = llava_model(
                 input_ids=filter_input_ids,
                 attention_mask=filter_attention_mask,
@@ -197,16 +144,44 @@ def train_one_epoch(dataloader, optimizer, llava_model, tokenizer, loss_fn, args
                 feature_dict=None,
                 output_hidden_states=True,
             )
-            filter_loss = filter_outputs.loss
-            combined_loss += filter_loss
-        combined_loss.backward()
-        optimizer.step()
-        if args.prefiltering:
-            pbar.set_description(
-                f"loss: {combined_loss.item():.3f}, selection_loss: {selection_loss.item():.3f}, filter_loss: {filter_loss.item():.3f}"
+            '''
+
+            # test output
+            # print(
+            #     tokenizer.decode(
+            #         filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+            #     )
+            # )
+            # print()
+            # print(
+            #     tokenizer.decode(
+            #         filter_labels[0][filter_labels[0] != -100]
+            #     )
+            # )
+            logging.info(
+                tokenizer.decode(
+                    filter_input_ids[0][filter_input_ids[0] != tokenizer.pad_token_id]
+                )
             )
-        else:
-            pbar.set_description(f"loss: {combined_loss.item():.3f}")
+            #logging.info(tokenizer.decode(filter_labels[0][filter_labels[0] != -100]))
+
+            # filter_outputs = llava_model(
+            #     input_ids=filter_input_ids,
+            #     attention_mask=filter_attention_mask,
+            #     labels=filter_labels,
+            #     feature_dict=None,
+            #     output_hidden_states=True,
+            # )
+            # filter_loss = filter_outputs.loss
+            # combined_loss += filter_loss
+        # combined_loss.backward()
+        # optimizer.step()
+        # if args.prefiltering:
+        #     pbar.set_description(
+        #         f"loss: {combined_loss.item():.3f}, selection_loss: {selection_loss.item():.3f}, filter_loss: {filter_loss.item():.3f}"
+        #     )
+        # else:
+        #     pbar.set_description(f"loss: {combined_loss.item():.3f}")
 
 
 def eval(dataloader, model, tokenizer, args):
@@ -315,13 +290,30 @@ def main():
     )
     parser.add_argument(
         "--exploration_path",
-        default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        #default="/gpfs/u/home/LMCG/LMCGnngn/scratch/yanghan/3d/explore-eqa-test/",
+        #default="/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/scene_understanding/explore-eqa-test/",
+        default="/gpfs/u/home/LMCG/LMCGhazh/scratch/yanghan/explore-eqa-test/",
         help="exploration path",
     )
     parser.add_argument(
         "--egocentric_views",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--num_egocentric_views",
+        type = int,
+        default = 1
+    )
+    parser.add_argument(
+        "--egocentric_visual_size",
+        type=int,
+        default=24,
+    )
+    parser.add_argument(
+        "--egocentric_patch_size",
+        type=int,
+        default=2,
     )
     parser.add_argument(
         "--action_memory",
@@ -348,6 +340,12 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
+    parser.add_argument("--patch_size", type=int, default=1)
+    parser.add_argument("--visual_feature_size", type=int, default=3)
+    parser.add_argument("--max_length", type=int, default=4096)
+    parser.add_argument("--augment_question",action="store_true",default=False)
+    parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
+    parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     args = parser.parse_args()
     # set up random seed
     set_seed(args.seed)
@@ -355,12 +353,17 @@ def main():
     # print(f"local_rank: {args.local_rank} rank: {args.rank} world_size: {args.world_size}")
     # device_id = init_distributed_device(args)
 
-    model_path = "liuhaotian/llava-v1.5-7b"
+    model_path = "/gpfs/u/home/LMCG/LMCGhazh/scratch/external/yuncong/llava-v1.5-7b"
     model_path = os.path.expanduser(model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         model_path, None, model_name, device_map=None, add_multisensory_token=True
     )
+    # freeze model
+    model.requires_grad_(True)
+    del model.model.vision_tower
+    
+    model.train()
     # from dataset import (
     #     SCENE_TOKEN
     # )
@@ -378,13 +381,19 @@ def main():
         scene_path=args.scene_path,
         exploration_path=args.exploration_path,
         egocentric_views=args.egocentric_views,
+        num_egocentric_views=args.num_egocentric_views,
+        egocentric_visual_size=args.egocentric_visual_size,
+        egocentric_patch_size=args.egocentric_patch_size,
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
-        max_length=2048,
+        patch_size = args.patch_size,
+        max_length=args.max_length,
+        augment_question=args.augment_question,
+        visual_feature_size=args.visual_feature_size,
     )
     train_index, test_index = dataset.split_index(test_ratio=0.25)
     train_dataset = Subset(dataset, train_index)
@@ -414,10 +423,6 @@ def main():
         collate_fn=dataset.collate_wrapper,
     )
 
-    # freeze model
-    model.requires_grad_(True)
-    del model.model.vision_tower
-    model.train()
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-6)
 
@@ -431,11 +436,11 @@ def main():
         print("Start training epoch %d" % epoch)
 
         # Jiachen TODO: update train_one_epoch for your feature
-        dataset.split = "train"
+        dataset.split = "val"
         train_one_epoch(dataloader, optimizer, model, tokenizer, loss_fn, args)
         # save checkpoint
         # save_checkpoint(model, args.folder, epoch, args)
-        dataset.split = "val"
+        #dataset.split = "val"
         print("evaluating")
         # Jiachen TODO: update eval for your feature
         # eval(val_dataloader, model, tokenizer, args)

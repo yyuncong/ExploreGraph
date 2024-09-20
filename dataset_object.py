@@ -116,14 +116,14 @@ def show_sample(sample):
             print(v.shape)
 
 
-def prepare_egocentric_view(egocentric_path, num_egocentric_views
+def prepare_egocentric_view(egocentric_path, num_egocentric_views,
         visual_feature_size, patch_size):
     text = "Followings are the egocentric views:\n "
     num_tokens = (visual_feature_size // patch_size) ** 2
     egocentric_features = []
     # TODO: only pick the last egocentric view if num_egocentric_views == 1
     egocentric_path = sorted(list(egocentric_path.items()), key = lambda x: x[0])
-    print(egocentric_paths)
+    #print(egocentric_path)
     if num_egocentric_views == 1:
         egocentric_path = [egocentric_path[-1]]
         
@@ -263,11 +263,9 @@ class ExploreDataset(Dataset):
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_finetuned")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data_cg_baseline")
         #self.explore_dir = os.path.join(exploration_path, "exploration_data")
         self.augmented_questions_path = "question_augment/augmented_generated_questions.json"
-        with open(self.category_map_path, "r") as f:
-            self.category_map = json.load(f)
         self.tokenizer = tokenizer
         self.scene_token = scene_token
         self.scene_token_id = self.tokenizer(self.scene_token).input_ids[-1]
@@ -279,7 +277,6 @@ class ExploreDataset(Dataset):
         self.num_egocentric_views = num_egocentric_views
         self.egocentric_patch_size = egocentric_patch_size
         self.egocentric_visual_size = egocentric_visual_size
-        self.egocentric
         self.top_k_categories = top_k_categories
 
         self.max_length = max_length
@@ -345,7 +342,7 @@ class ExploreDataset(Dataset):
         object_folder = os.path.join(epi_path, "image_crop")
         for obj in stepdata["objects"]:
             rgb_id = obj["img_id"]
-            feature = os.path.join(snapshot_folder, rgb_id.replace(".png", "_full.pt"))
+            feature = os.path.join(object_folder, rgb_id.replace(".png", "_full.pt"))
             stepdata["object_features"][rgb_id] = feature
             #object_id = snapshot["obj_id"]
             # use image_id to index the snapshot
@@ -360,8 +357,12 @@ class ExploreDataset(Dataset):
         stepdata["egocentric_features"] = {}
         # TODO: load all egocentric views for current step
         egocentric_view_folder = os.path.join(epi_path, f"egocentric_views")
-        step_prefix, step_suffix = f"{step}--view_","_full.pt"
+        step_prefix, step_suffix = f"{step}-view_","_full.pt"
+        #print(step)
+        #print(os.listdir(egocentric_view_folder))
         egocentric_files = sorted([f for f in os.listdir(egocentric_view_folder) if (step_prefix in f and step_suffix in f)])
+        #print(egocentric_files)
+        #exit(0)
         for f in egocentric_files:
             view_idx = int(f.split('_')[1])
             stepdata["egocentric_features"][view_idx] = os.path.join(egocentric_view_folder,f)
@@ -479,7 +480,7 @@ class ExploreDataset(Dataset):
             try:
                 egocentric_text, egocentric_features = prepare_egocentric_view(
                     step["egocentric_features"],
-                    self.num_egocentric_views
+                    self.num_egocentric_views,
                     self.egocentric_visual_size,
                     self.egocentric_patch_size,
                 )
@@ -697,7 +698,7 @@ class ExploreDataset(Dataset):
         prediction = torch.tensor(prediction)
 
         # prefiltering TODO: the assert might not be valid after prefiltering
-        assert prediction.shape[0] == snapshot_index + len(step["frontiers"])
+        assert prediction.shape[0] == object_index + len(step["frontiers"])
 
         if not np.where(prediction == 1.0)[0].shape[0] == 1:
             self.answer_obj_filtered_indices.add(idx)
@@ -705,10 +706,10 @@ class ExploreDataset(Dataset):
             return self.__getitem__(index)
 
         prediction_index = np.where(prediction == 1.0)[0][0]
-        if prediction_index < snapshot_index:
-            answer = f"object {prediction_index}"
+        if prediction_index < object_index:
+            answer = f"object {object_index}"
         else:
-            answer = f"frontier {prediction_index - snapshot_index}"
+            answer = f"frontier {prediction_index - object_index}"
 
         text += "Answer: "
         text += answer + self.tokenizer.eos_token
