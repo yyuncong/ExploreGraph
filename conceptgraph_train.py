@@ -271,18 +271,15 @@ def format_saving_folder(args):
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
         saving_folder += f"_coeff{args.filter_coeff}"
-    if args.mix_gt:
-        saving_folder += "_mix"
-        saving_folder += f"_gtrate{args.gt_rate}"
     if args.egocentric_views:
         saving_folder += "_ego"
         saving_folder += f"{args.num_egocentric_views}"
+        token_size = args.egocentric_visual_size//args.egocentric_patch_size
+        saving_folder += f"token{token_size}"
     if args.action_memory:
         saving_folder += "_mem"
     if args.lora_enable:
         saving_folder += "_lora"
-    if args.target_use_gt:
-        saving_folder += "_targt"
     if args.augment_question:
         saving_folder += "_qaug"
     return saving_folder

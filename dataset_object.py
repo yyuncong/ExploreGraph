@@ -707,7 +707,7 @@ class ExploreDataset(Dataset):
 
         prediction_index = np.where(prediction == 1.0)[0][0]
         if prediction_index < object_index:
-            answer = f"object {object_index}"
+            answer = f"object {prediction_index}"
         else:
             answer = f"frontier {prediction_index - object_index}"
 

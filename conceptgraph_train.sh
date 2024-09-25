@@ -75,7 +75,7 @@ echo $CMD
 
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
-multitask_train.py \
+conceptgraph_train.py \
 --folder ckpts/cg_baseline \
 --random_permute \
 --lr=4e-6 \
