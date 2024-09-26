@@ -116,11 +116,19 @@ def show_sample(sample):
             print(v.shape)
 
 
-def prepare_egocentric_view(egocentric_path, visual_feature_size, patch_size):
+def prepare_egocentric_view(egocentric_path, num_egocentric_views,
+        visual_feature_size, patch_size):
     text = "Followings are the egocentric views:\n "
     num_tokens = (visual_feature_size // patch_size) ** 2
     egocentric_features = []
-    for i, view in egocentric_path.items():
+    # TODO: only pick the last egocentric view if num_egocentric_views == 1
+    # TODO: check if the final order is correct
+    egocentric_path = sorted(list(egocentric_path.items()), key = lambda x: x[0])
+    #print(egocentric_path)
+    if num_egocentric_views == 1:
+        egocentric_path = [egocentric_path[-1]]
+        
+    for i, view in egocentric_path:
         egocentric_feature = torch.load(view, map_location="cpu")
         egocentric_feature = merge_patches(
             egocentric_feature.view(visual_feature_size, visual_feature_size, -1),
@@ -240,25 +248,25 @@ class ExploreDataset(Dataset):
         scene_token=SCENE_TOKEN,
         select_token=SELECT_TOKEN,
         egocentric_views=False,
+        egocentric_patch_size=2,
         action_memory=False,
         prefiltering=False,
         random_permute=False,
         add_positional_encodings=False,
-        mix_gt=False,
         augment_question=False,
-        target_use_gt=False,
         top_k_categories=5,
         num_egocentric_views=5,
-        patch_size=3,
-        visual_feature_size=6,
-        gt_rate=0,
+        snapshot_patch_size=8,
+        visual_feature_size=24,
+        frontier_patch_size=1,
+        frontier_visual_size=3,
         split="train",
     ):
         self.scene_dir = os.path.join(scene_path, "scene_feature_dict_merged_snapshots")
         self.ranking_path = os.path.join(scene_path, "selected_candidates.json")
         #self.obj_bbox_dir = "/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_merged"
         self.obj_bbox_dir ="/gpfs/u/home/LMCG/LMCGnngn/scratch/multisensory/MLLM/data/hm3d/hm3d_obj_bbox_all"
-        self.explore_dir = os.path.join(exploration_path, "exploration_data_finetuned")
+        self.explore_dir = os.path.join(exploration_path, "exploration_data")
         #self.explore_dir = os.path.join(exploration_path, "exploration_data")
         self.category_map_path = "bbox_mapping/mpcat40_full_map.json"
         self.augmented_questions_path = "question_augment/augmented_generated_questions.json"
@@ -274,10 +282,6 @@ class ExploreDataset(Dataset):
         self.augment_question = augment_question
         self.num_egocentric_views = num_egocentric_views
         self.top_k_categories = top_k_categories
-        self.mix_gt = mix_gt
-        self.gt_rate = gt_rate
-        self.target_use_gt = target_use_gt
-
         self.max_length = max_length
         self.split = split
         self.data = self.load_data()
@@ -295,12 +299,24 @@ class ExploreDataset(Dataset):
         )
         self.add_positional_encodings = add_positional_encodings
 
-        self.patch_size = patch_size
-        assert visual_feature_size % self.patch_size == 0
+        self.egocentric_patch_size = egocentric_patch_size
+        self.snapshot_patch_size = snapshot_patch_size
+        self.frontier_patch_size = frontier_patch_size
+        self.frontier_visual_size = frontier_visual_size
+        assert visual_feature_size % egocentric_patch_size == 0
+        assert visual_feature_size % snapshot_patch_size == 0
+        assert frontier_visual_size % frontier_patch_size == 0
         # each object is represented by 4 visual tokens(by default)
-        self.num_visual_tokens = (visual_feature_size // self.patch_size) ** 2
+        # self.num_visual_tokens = (visual_feature_size // self.patch_size) ** 2
+        self.snapshot_tokens = (visual_feature_size//self.snapshot_patch_size) ** 2
+        self.frontier_tokens = (frontier_visual_size//self.frontier_patch_size) ** 2
+        self.egocentric_tokens = (visual_feature_size//self.egocentric_patch_size) ** 2
         self.visual_feature_size = visual_feature_size
-
+        
+    # TODO: patch size adjustment
+    # 1: egocentric_view: (visual_feature_size, egocentric_patch_size)
+    # 2: snapshot: (visual_feature_size, patch_size)
+    # 3: frontier: (frontier_visual_feature_size, frontier_patch_size) ?
     def load_step(self, step_path):
         try:
             with open(step_path, "r", encoding='utf-8') as f:
@@ -473,8 +489,9 @@ class ExploreDataset(Dataset):
             try:
                 egocentric_text, egocentric_features = prepare_egocentric_view(
                     step["egocentric_features"],
+                    self.num_egocentric_views,
                     self.visual_feature_size,
-                    self.patch_size,
+                    self.egocentric_patch_size,
                 )
             except:
                 index = np.random.choice(self.indices)
@@ -522,7 +539,6 @@ class ExploreDataset(Dataset):
         # use seen objects set to replace class2object
         # class2object = defaultdict(list)
         seen_classes = set()
-        use_gt = (random.random() < self.gt_rate) and self.mix_gt
         for i, rgb_id in enumerate(step["snapshot_features"].keys()):
             # No need to filter here (both scene_graph and snapshots objects from the json files)
             try:
@@ -545,7 +561,7 @@ class ExploreDataset(Dataset):
                     snapshot_feature.view(
                         self.visual_feature_size, self.visual_feature_size, -1
                     ),
-                    self.patch_size,
+                    self.snapshot_patch_size,
                 )
                 # update the way naming objects
                 '''
@@ -554,6 +570,7 @@ class ExploreDataset(Dataset):
                 else:
                     print(target_obj_id)
                     print(list(step["snapshot_objects"][rgb_id].keys()))
+                '''
                 '''
                 if use_gt:
                     snapshot_class = [
@@ -565,6 +582,11 @@ class ExploreDataset(Dataset):
                         class_name['gt_class'] if sid == str(target_obj_id) and self.target_use_gt else class_name['recognize_class']
                         for sid,class_name in step["snapshot_objects"][rgb_id].items()
                     ]
+                '''
+                snapshot_class = [
+                    class_name['recognize_class']
+                    for sid,class_name in step["snapshot_objects"][rgb_id].items()
+                ]
                 seen_classes.update(snapshot_class)
                 snapshot_classes.append(
                     # [obj_map[str(sid)] for sid in step["snapshot_objects"][rgb_id]]
@@ -681,7 +703,7 @@ class ExploreDataset(Dataset):
             '''
             for class_name in sorted_class_names:
                 text += f"{class_name}, "
-            for _ in range(self.num_visual_tokens):
+            for _ in range(self.snapshot_tokens):
                 text += "<scene>"
             text += " / "
         if snapshot_index == 0:
@@ -700,8 +722,8 @@ class ExploreDataset(Dataset):
         frontier_text, frontier_features = prepare_frontier(
             step["frontier_features"],
             [step["frontiers"][idx] for idx in frontier_index],
-            self.visual_feature_size,
-            self.patch_size,
+            self.frontier_visual_size,
+            self.frontier_patch_size,
         )
         if frontier_text is None:
             index = np.random.choice(self.indices)
@@ -762,7 +784,7 @@ class ExploreDataset(Dataset):
         # print("scene_feature", scene_feature.shape)
 
         
-        if len(scene_feature) // self.num_visual_tokens > 45:
+        if len(scene_feature) // self.snapshot_tokens > 45:
             self.too_many_objects_indices.add(idx)
             if self.split == "train":
                 index = np.random.choice(self.indices)

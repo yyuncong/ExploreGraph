@@ -270,7 +270,8 @@ def eval(dataloader, model, tokenizer, args):
             print(f"loss: {total_selection_loss / total_sample:.3f}")
 
 def format_saving_folder(args):
-    saving_folder = f"{args.folder}_{args.lr}_patch{args.patch_size}_ds"
+    snapshot_token = args.visual_feature_size // args.snapshot_patch_size
+    saving_folder = f"{args.folder}_{args.lr}_snap{snapshot_token}_ds"
     if args.add_positional_encodings:
         saving_folder += "_pos"
     if args.random_permute:
@@ -279,22 +280,17 @@ def format_saving_folder(args):
         saving_folder += "_filter"
         saving_folder += f"_top{args.top_k_categories}"
         saving_folder += f"_coeff{args.filter_coeff}"
-    if args.mix_gt:
-        saving_folder += "_mix"
-        saving_folder += f"_gtrate{args.gt_rate}"
     if args.egocentric_views:
+        ego_token = args.visual_feature_size // args.egocentric_patch_size
         saving_folder += "_ego"
         saving_folder += f"{args.num_egocentric_views}"
+        saving_folder += f"token{ego_token}"
     if args.action_memory:
         saving_folder += "_mem"
     if args.lora_enable:
         saving_folder += "_lora"
-    if args.target_use_gt:
-        saving_folder += "_targt"
     if args.augment_question:
         saving_folder += "_qaug"
-    img_prompt_size = args.image_prompt_visual_feature_size//args.image_prompt_patch_size
-    saving_folder += f"_img{img_prompt_size}"
     return saving_folder
 
 def main():
@@ -355,6 +351,11 @@ def main():
         default=5,
     )
     parser.add_argument(
+        "--egocentric_patch_size",
+        type=int,
+        default=2,
+    )
+    parser.add_argument(
         "--action_memory",
         action="store_true",
         default=False,
@@ -380,12 +381,11 @@ def main():
     parser.add_argument(
         "--add_positional_encodings", action="store_true", default=False
     )
-    parser.add_argument("--patch_size", type=int, default=2)
-    parser.add_argument("--visual_feature_size", type=int, default=6)
+    parser.add_argument("--snapshot_patch_size", type=int, default=8)
+    parser.add_argument("--visual_feature_size", type=int, default=24)
+    parser.add_argument("--frontier_patch_size", type=int, default=1)
+    parser.add_argument("--frontier_visual_size", type=int, default=3)
     parser.add_argument("--max_length", type=int, default=2048)
-    parser.add_argument("--mix_gt", action="store_true", default=False)
-    parser.add_argument("--gt_rate", type=float, default=0)
-    parser.add_argument("--target_use_gt", action="store_true", default=False)
     parser.add_argument("--augment_question",action="store_true",default=False)
     parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
     parser.add_argument("--image_prompt_patch_size", type=int, default=2)
@@ -432,12 +432,12 @@ def main():
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
-        patch_size=args.patch_size,
+        snapshot_patch_size=args.snapshot_patch_size,
+        egocentric_patch_size=args.egocentric_patch_size,
+        frontier_patch_size=args.frontier_patch_size,
+        frontier_visual_size=args.frontier_visual_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
-        mix_gt=args.mix_gt,
-        gt_rate=args.gt_rate,
-        target_use_gt=args.target_use_gt,
         augment_question=args.augment_question,
         visual_feature_size=args.visual_feature_size,
         image_prompt_visual_feature_size=args.image_prompt_visual_feature_size,
@@ -454,13 +454,14 @@ def main():
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
         tokenizer=tokenizer,
-        patch_size=args.patch_size,
+        snapshot_patch_size=args.snapshot_patch_size,
+        egocentric_patch_size=args.egocentric_patch_size,
+        frontier_patch_size=args.frontier_patch_size,
+        frontier_visual_size=args.frontier_visual_size,
         max_length=args.max_length,
         visual_feature_size=args.visual_feature_size,
         image_prompt_visual_feature_size=args.image_prompt_visual_feature_size,
         image_prompt_patch_size=args.image_prompt_patch_size,
-        mix_gt=False,
-        target_use_gt=False, # only use recognize label for target
         augment_question=False, # only use raw question for validation
         split="val",
     )

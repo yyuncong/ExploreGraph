@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=test-ds
-#SBATCH --output=log/dcs_scannet-%j.txt
-#SBATCH --error=log/dcs_scannet-%j.err
+#SBATCH --output=log/snapshot-%j.txt
+#SBATCH --error=log/snapshot-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=24
+#SBATCH --nodes=16
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs
@@ -76,21 +76,24 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 deepspeed_train.py \
---folder ckpts/scannet_finetuned \
+--folder ckpts/snapshot \
 --random_permute \
 --lr=4e-6 \
 --num_epochs=6 \
 --batch_size=1 \
---patch_size=1 \
---visual_feature_size=3 \
+--snapshot_patch_size=8 \
+--egocentric_patch_size=2 \
+--visual_feature_size=24 \
+--frontier_patch_size=1 \
+--frontier_visual_size=3 \
 --max_length=4508 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
 --augment_question \
---num_egocentric_views=5 \
+--num_egocentric_views=1 \
 --prefiltering \
---filter_coeff=0.4 \
+--filter_coeff=0.2 \
 --top_k_categories=10 \
 
 
