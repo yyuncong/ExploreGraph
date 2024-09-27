@@ -291,6 +291,8 @@ def format_saving_folder(args):
         saving_folder += "_lora"
     if args.augment_question:
         saving_folder += "_qaug"
+    goal_token = args.image_prompt_visual_feature_size // args.image_prompt_patch_size
+    saving_folder += f"_img{goal_token}"
     return saving_folder
 
 def main():

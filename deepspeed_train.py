@@ -426,10 +426,10 @@ def main():
         egocentric_patch_size=args.egocentric_patch_size,
         frontier_patch_size=args.frontier_patch_size,
         frontier_visual_size=args.frontier_visual_size,
+        visual_feature_size=args.visual_feature_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
-        augment_question=args.augment_question,
-        visual_feature_size=args.visual_feature_size
+        augment_question=args.augment_question
     )
     val_total_dataset = ExploreDataset(
         scene_path=args.scene_path,
@@ -441,9 +441,13 @@ def main():
         top_k_categories=args.top_k_categories,
         random_permute=args.random_permute,
         add_positional_encodings=args.add_positional_encodings,
+        snapshot_patch_size=args.snapshot_patch_size,
+        egocentric_patch_size=args.egocentric_patch_size,
+        frontier_patch_size=args.frontier_patch_size,
+        frontier_visual_size=args.frontier_visual_size,
+        visual_feature_size=args.visual_feature_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
-        visual_feature_size=args.visual_feature_size,
         augment_question = False,
         split="val",
     )

@@ -4,7 +4,7 @@
 #SBATCH --error=log/snapshot-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
-#SBATCH --nodes=16
+#SBATCH --nodes=24
 # activate the environment
 # source /gpfs/u/home/LMCG/LMCGnngn/scratch/miniconda3x86/etc/profile.d/conda.sh
 #source ~/.bashrc_dcs
@@ -93,7 +93,7 @@ $DEEPSPEED_ARGS \
 --augment_question \
 --num_egocentric_views=1 \
 --prefiltering \
---filter_coeff=0.2 \
+--filter_coeff=0.3 \
 --top_k_categories=10 \
 
 
