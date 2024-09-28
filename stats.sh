@@ -27,9 +27,13 @@ max_length=4508
 echo "max_length=$max_length"
 python singlegpu_stats.py \
 --max_length=$max_length \
---patch_size=1 \
---visual_feature_size=3 \
---image_prompt_patch_size=2 \
+--snapshot_patch_size=8 \
+--egocentric_patch_size=2 \
+--visual_feature_size=24 \
+--frontier_patch_size=1 \
+--frontier_visual_size=3 \
+--image_prompt_visual_feature_size 24 \
+--image_prompt_patch_size 2 \
 
 
 max_length=4508
@@ -37,9 +41,13 @@ max_length=4508
 echo "max_length=$max_length"
 python singlegpu_stats.py \
 --max_length=$max_length \
---patch_size=1 \
---visual_feature_size=3 \
---image_prompt_patch_size=4 \
+--snapshot_patch_size=8 \
+--egocentric_patch_size=2 \
+--visual_feature_size=24 \
+--frontier_patch_size=1 \
+--frontier_visual_size=3 \
+--image_prompt_visual_feature_size 24 \
+--image_prompt_patch_size 4 \
 
 
 

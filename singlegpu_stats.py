@@ -295,14 +295,21 @@ def main():
         default=5,
     )
     parser.add_argument(
+        "--egocentric_patch_size",
+        type=int,
+        default=2,
+    )
+    parser.add_argument(
         "--action_memory",
         action="store_true",
         default=False,
     )
     parser.add_argument("--prefiltering", action="store_true", default=False)
     parser.add_argument("--top_k_categories", type=int, default=5)
-    parser.add_argument("--patch_size", type=int, default = 1)
-    parser.add_argument("--visual_feature_size", type = int, default = 3)
+    parser.add_argument("--snapshot_patch_size", type=int, default=8)
+    parser.add_argument("--visual_feature_size", type=int, default=24)
+    parser.add_argument("--frontier_patch_size", type=int, default=1)
+    parser.add_argument("--frontier_visual_size", type=int, default=3)
     parser.add_argument("--image_prompt_visual_feature_size", type=int, default=24)
     parser.add_argument("--image_prompt_patch_size", type=int, default=2)
     parser.add_argument("--max_length", type = int, default = 2048)
@@ -336,8 +343,11 @@ def main():
         action_memory=args.action_memory,
         prefiltering=args.prefiltering,
         top_k_categories=args.top_k_categories,
-        patch_size=args.patch_size,
         visual_feature_size=args.visual_feature_size,
+        egocentric_patch_size = args.egocentric_patch_size,
+        snapshot_patch_size = args.snapshot_patch_size,
+        frontier_visual_size = args.frontier_visual_size,
+        frontier_patch_size = args.frontier_patch_size,
         tokenizer=tokenizer,
         max_length=args.max_length,
         image_prompt_visual_feature_size=args.image_prompt_visual_feature_size,

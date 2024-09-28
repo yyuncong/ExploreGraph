@@ -375,6 +375,8 @@ class ExploreDataset(Dataset):
                 egocentric_view_folder, f"{step}-view_{view_idx}_full.pt"
             )
             stepdata["egocentric_features"][view_idx] = featrue
+        print(stepdata["egocentric_features"])
+        exit(0)
         return stepdata
 
     def load_data(self):

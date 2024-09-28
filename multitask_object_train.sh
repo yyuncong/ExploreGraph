@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=test-ds
-#SBATCH --output=log/goatbench-%j.txt
-#SBATCH --error=log/goatbench-%j.err
+#SBATCH --output=log/goatbench_object-%j.txt
+#SBATCH --error=log/goatbench_ojbect-%j.err
 #SBATCH --time=06:00:00
 #SBATCH --gres=gpu:6
 #SBATCH --nodes=24
@@ -76,21 +76,20 @@ echo $CMD
 # always set every choice to true to achieve peak GPU memory
 srun $CMD \
 multitask_train.py \
---folder ckpts/goatbench_snapshot \
+--folder ckpts/goatbench_object \
 --random_permute \
 --lr=4e-6 \
 --num_epochs=8 \
 --batch_size=1 \
---snapshot_patch_size=8 \
---egocentric_patch_size=3 \
---visual_feature_size=24 \
---frontier_patch_size=1 \
---frontier_visual_size=3 \
+--patch_size=1 \
+--visual_feature_size=3 \
 --max_length=4096 \
 $DEEPSPEED_ARGS \
 --egocentric_views \
 --lora_enable \
 --num_egocentric_views=1 \
+--egocentric_visual_size=24 \
+--egocentric_patch_size=2 \
 --image_prompt_visual_feature_size 24 \
 --image_prompt_patch_size 2 \
 --prefiltering \
